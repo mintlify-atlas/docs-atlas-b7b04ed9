@@ -1,0 +1,141 @@
+---
+title: Introduction
+description: Sentinel AI is an autonomous DevOps agent that monitors, diagnoses, and repairs issues in Linux servers using AI-powered decision making and RAG-based knowledge retrieval.
+---
+
+# Welcome to Sentinel AI
+
+Sentinel AI is an autonomous DevOps agent designed to monitor, diagnose, and repair problems in Linux servers in real-time. It uses Generative AI (LLMs) powered by a RAG (Retrieval-Augmented Generation) system to make informed decisions based on official technical documentation.
+
+<Note>
+  Sentinel AI operates with a human-in-the-loop approach for critical actions, ensuring safety while maintaining automation efficiency.
+</Note>
+
+## What is Sentinel AI?
+
+Sentinel AI is an intelligent DevOps automation platform that combines:
+
+- **Autonomous monitoring** of critical services (Nginx, PostgreSQL, Docker, SSH)
+- **AI-powered diagnosis** using RAG to retrieve relevant technical documentation
+- **Automated remediation** with safety controls and approval workflows
+- **Real-time dashboard** for monitoring agent activity and system status
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Autonomous Agent" icon="brain">
+    LangGraph-powered decision engine that monitors services, diagnoses issues, plans fixes, and executes remediation automatically.
+  </Card>
+  
+  <Card title="RAG Knowledge Base" icon="book">
+    Consults real technical manuals indexed in Pinecone (PostgreSQL, Nginx, Docker, Linux) with Cohere Rerank for accuracy.
+  </Card>
+  
+  <Card title="Real-time Dashboard" icon="gauge">
+    Modern Next.js interface with live terminal output, service status monitoring, and interactive chat.
+  </Card>
+  
+  <Card title="Safety Controls" icon="shield">
+    Command whitelist, human approval for destructive actions, and SSH key-based authentication.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+Sentinel AI operates through an intelligent decision graph with six core stages:
+
+<Steps>
+  <Step title="Monitor">
+    Continuously checks configured services for failures or anomalies using SSH commands.
+  </Step>
+  
+  <Step title="Diagnose">
+    When an issue is detected, analyzes logs and errors using RAG to find the root cause from technical documentation.
+  </Step>
+  
+  <Step title="Plan">
+    Generates a step-by-step remediation plan based on retrieved knowledge and past successful resolutions.
+  </Step>
+  
+  <Step title="Approve">
+    Requests human approval for critical commands (e.g., `rm`, `sudo`) while auto-approving safe operations.
+  </Step>
+  
+  <Step title="Execute">
+    Executes approved commands via secure SSH connection with full audit logging.
+  </Step>
+  
+  <Step title="Verify">
+    Confirms the issue is resolved by re-checking service status, retrying if needed (up to 5 attempts).
+  </Step>
+</Steps>
+
+## Architecture Overview
+
+### Backend (Python)
+
+The backend is built with modern Python technologies:
+
+- **FastAPI**: REST API and WebSocket endpoints for real-time communication
+- **LangGraph**: Orchestrates the autonomous agent workflow as a state machine
+- **LlamaIndex**: Manages RAG pipeline for document ingestion and retrieval
+- **Paramiko**: Secure SSH client for remote server access
+- **Pinecone**: Vector database storing embedded technical documentation
+- **Cohere**: Re-ranks retrieved documents to ensure relevance
+
+### Frontend (TypeScript)
+
+The dashboard provides a modern user experience:
+
+- **Next.js 16**: React framework with App Router for optimal performance
+- **Tailwind CSS**: Utility-first styling for responsive design
+- **Shadcn UI**: Accessible, customizable component library
+- **WebSocket**: Real-time agent logs and event streaming
+- **Lucide React**: Consistent iconography
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Service Recovery" icon="rotate">
+    Automatically restart failed services like Nginx or PostgreSQL with proper diagnosis before action.
+  </Card>
+  
+  <Card title="Log Analysis" icon="file-search">
+    Query the agent to analyze error logs and get AI-powered insights from technical manuals.
+  </Card>
+  
+  <Card title="Configuration Fixes" icon="wrench">
+    Detect and repair misconfigurations based on best practices from official documentation.
+  </Card>
+  
+  <Card title="Incident Response" icon="siren">
+    Reduce MTTR (Mean Time To Recovery) by automating the initial diagnosis and remediation steps.
+  </Card>
+</CardGroup>
+
+## Safety and Security
+
+Sentinel AI is designed with production safety in mind:
+
+<Warning>
+  All critical commands require explicit human approval before execution.
+</Warning>
+
+- **Command Whitelist**: Only allows pre-approved safe commands by default
+- **Human-in-the-Loop**: Critical actions trigger approval workflow via dashboard
+- **SSH Key Authentication**: Secure, password-optional remote access
+- **Audit Logging**: Complete trail of all agent decisions and actions
+- **Retry Limits**: Prevents infinite loops with configurable max retries (default: 5)
+- **Escalation**: Automatically escalates to humans when automation fails
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get Sentinel AI running in minutes with our quickstart guide.
+  </Card>
+  
+  <Card title="Installation" icon="download" href="/installation">
+    Detailed installation instructions for backend and frontend setup.
+  </Card>
+</CardGroup>

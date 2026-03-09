@@ -1,0 +1,648 @@
+---
+title: 'SSH Client'
+description: 'Execute remote commands securely via SSH with sudo support'
+icon: 'terminal'
+---
+
+## Overview
+
+The `SSHClient` class provides a secure interface for executing shell commands on remote servers. It wraps the Paramiko library and includes built-in sudo handling, connection management, and interruption support.
+
+## Import
+
+```python
+from src.tools.ssh import SSHClient
+```
+
+## SSHClient
+
+### Constructor
+
+```python
+class SSHClient:
+    def __init__(
+        self,
+        hostname: str,
+        username: str,
+        password: Optional[str] = None,
+        key_filename: Optional[str] = None,
+        port: int = 22
+    )
+```
+
+Initializes an SSH client instance without establishing a connection.
+
+<ParamField path="hostname" type="str" required>
+  IP address or hostname of the remote server
+</ParamField>
+
+<ParamField path="username" type="str" required>
+  SSH username for authentication
+</ParamField>
+
+<ParamField path="password" type="str" optional>
+  Password for authentication (required if `key_filename` not provided)
+</ParamField>
+
+<ParamField path="key_filename" type="str" optional>
+  Path to SSH private key file for key-based authentication
+</ParamField>
+
+<ParamField path="port" type="int" default="22">
+  SSH port number
+</ParamField>
+
+### Attributes
+
+<ResponseField name="hostname" type="str">
+  Stored hostname
+</ResponseField>
+
+<ResponseField name="username" type="str">
+  Stored username
+</ResponseField>
+
+<ResponseField name="password" type="str | None">
+  Stored password (if provided)
+</ResponseField>
+
+<ResponseField name="key_filename" type="str | None">
+  Stored key file path (if provided)
+</ResponseField>
+
+<ResponseField name="port" type="int">
+  SSH port
+</ResponseField>
+
+<ResponseField name="client" type="paramiko.SSHClient | None">
+  Paramiko SSH client instance (initialized after `connect()`)
+</ResponseField>
+
+### Example
+
+```python
+from src.tools.ssh import SSHClient
+
+# Password authentication
+ssh = SSHClient(
+    hostname="192.168.1.100",
+    username="sentinel",
+    password="secure_password",
+    port=22
+)
+
+# Key-based authentication
+ssh_key = SSHClient(
+    hostname="production.server.com",
+    username="deploy",
+    key_filename="/home/user/.ssh/id_rsa"
+)
+```
+
+---
+
+## Methods
+
+### connect
+
+```python
+def connect(self) -> None
+```
+
+Establishes an SSH connection to the remote server.
+
+**Behavior:**
+
+1. Creates a new `paramiko.SSHClient` instance
+2. Sets `AutoAddPolicy` to automatically accept unknown host keys
+3. Connects using provided credentials (password or key file)
+4. Sets a 10-second connection timeout
+5. Prints connection status to stdout
+
+**Raises:**
+
+- `paramiko.AuthenticationException`: Invalid credentials
+- `paramiko.SSHException`: SSH protocol errors
+- `socket.timeout`: Connection timeout
+
+**Example:**
+
+```python
+from src.tools.ssh import SSHClient
+
+ssh = SSHClient(
+    hostname="192.168.1.100",
+    username="sentinel",
+    password="my_password"
+)
+
+try:
+    ssh.connect()
+    # [SSH] Conexion establecida con sentinel@192.168.1.100:22
+except Exception as e:
+    print(f"Connection failed: {e}")
+```
+
+<Warning>
+  The `AutoAddPolicy` automatically accepts host keys without verification. For production, use `RejectPolicy` and manage known_hosts explicitly.
+</Warning>
+
+---
+
+### execute_command
+
+```python
+def execute_command(
+    self,
+    command: str,
+    use_sudo: bool = False
+) -> Tuple[int, str, str]
+```
+
+Executes a shell command on the remote server.
+
+<ParamField path="command" type="str" required>
+  Shell command to execute
+</ParamField>
+
+<ParamField path="use_sudo" type="bool" default="False">
+  Whether to execute with sudo privileges
+</ParamField>
+
+<ResponseField name="exit_code" type="int">
+  Command exit code (0 = success)
+</ResponseField>
+
+<ResponseField name="stdout" type="str">
+  Standard output (trimmed and decoded)
+</ResponseField>
+
+<ResponseField name="stderr" type="str">
+  Standard error output
+</ResponseField>
+
+**Behavior:**
+
+1. Auto-connects if not already connected
+2. Checks for interruption signals via `check_stop()`
+3. If `use_sudo=True`:
+   - Prefixes command with `sudo -S`
+   - Requests a PTY (pseudo-terminal)
+   - Automatically sends the password via stdin
+   - Strips the `[sudo]` password prompt from output
+4. Waits for command completion while checking for interruptions
+5. Returns exit code and output streams
+
+**Example (Basic):**
+
+```python
+ssh = SSHClient(hostname="192.168.1.100", username="sentinel", password="pass")
+ssh.connect()
+
+code, out, err = ssh.execute_command("uptime")
+
+print(f"Exit Code: {code}")
+print(f"Output: {out}")
+# Exit Code: 0
+# Output: 14:23:45 up 3 days, 2:15, 1 user, load average: 0.52, 0.58, 0.59
+```
+
+**Example (With Sudo):**
+
+```python
+ssh = SSHClient(hostname="192.168.1.100", username="sentinel", password="pass")
+ssh.connect()
+
+code, out, err = ssh.execute_command("service nginx status", use_sudo=True)
+
+if "is running" in out:
+    print("Nginx is active")
+else:
+    print(f"Nginx error: {err}")
+```
+
+**Example (Error Handling):**
+
+```python
+code, out, err = ssh.execute_command("cat /nonexistent_file")
+
+if code != 0:
+    print(f"Command failed with code {code}")
+    print(f"Error: {err}")
+    # Command failed with code 1
+    # Error: cat: /nonexistent_file: No such file or directory
+```
+
+### Sudo Behavior
+
+When `use_sudo=True`:
+
+```python
+# Internal flow:
+command = "service nginx restart"
+
+# 1. Command is prefixed
+full_command = f"sudo -S {command}"  # "sudo -S service nginx restart"
+
+# 2. PTY is requested for password input
+stdin, stdout, stderr = client.exec_command(full_command, get_pty=True)
+
+# 3. Password is sent automatically
+time.sleep(0.3)  # Wait for prompt
+stdin.write(f"{self.password}\n")
+stdin.flush()
+
+# 4. Output is cleaned (removes [sudo] password prompt)
+out = stdout.read().decode().strip()
+if out.startswith("[sudo]"):
+    out = "\n".join(out.split("\n")[1:]).strip()
+```
+
+<Note>
+  The 300ms sleep ensures the sudo password prompt is ready before sending credentials. This prevents "sudo: no password was provided" errors.
+</Note>
+
+### Interruption Handling
+
+The method respects interruption signals:
+
+```python
+while not stdout.channel.exit_status_ready():
+    try:
+        check_stop()  # Raises exception if stop requested
+    except Exception:
+        print("[SSH] Interrupcion solicitada. Cerrando conexion.")
+        if self.client:
+            self.client.close()
+        raise
+    time.sleep(0.5)
+```
+
+This allows graceful cancellation of long-running commands:
+
+```python
+import signal
+import sys
+
+def signal_handler(sig, frame):
+    print("\nInterrupt received, stopping...")
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+
+# Long-running command
+code, out, err = ssh.execute_command("sleep 300")
+# Press Ctrl+C to interrupt
+# [SSH] Interrupcion solicitada. Cerrando conexion.
+```
+
+---
+
+### close
+
+```python
+def close(self) -> None
+```
+
+Closes the SSH connection and releases resources.
+
+**Example:**
+
+```python
+ssh = SSHClient(hostname="192.168.1.100", username="sentinel", password="pass")
+ssh.connect()
+
+# Execute commands
+ssh.execute_command("uptime")
+ssh.execute_command("df -h")
+
+# Clean up
+ssh.close()
+```
+
+<Tip>
+  Always call `close()` when done to prevent connection leaks. Use context managers for automatic cleanup (see Advanced Usage).
+</Tip>
+
+---
+
+## Usage Patterns
+
+### Single Command
+
+```python
+from src.tools.ssh import SSHClient
+
+ssh = SSHClient(hostname="192.168.1.100", username="admin", password="pass")
+ssh.connect()
+
+code, out, err = ssh.execute_command("hostname")
+print(f"Server: {out}")
+
+ssh.close()
+```
+
+### Multiple Commands
+
+```python
+ssh = SSHClient(hostname="192.168.1.100", username="admin", password="pass")
+ssh.connect()
+
+commands = [
+    "sudo service nginx stop",
+    "sudo pkill -9 nginx",
+    "sudo service nginx start"
+]
+
+for cmd in commands:
+    code, out, err = ssh.execute_command(cmd, use_sudo=True)
+    if code != 0:
+        print(f"Failed: {cmd}")
+        print(f"Error: {err}")
+        break
+    print(f"Success: {cmd}")
+
+ssh.close()
+```
+
+### Service Health Check
+
+```python
+def check_service_status(ssh: SSHClient, service: str) -> bool:
+    code, out, err = ssh.execute_command(f"service {service} status", use_sudo=True)
+    return "is running" in out
+
+ssh = SSHClient(hostname="192.168.1.100", username="admin", password="pass")
+ssh.connect()
+
+services = ["nginx", "postgres", "docker"]
+
+for service in services:
+    status = "UP" if check_service_status(ssh, service) else "DOWN"
+    print(f"{service}: {status}")
+
+ssh.close()
+```
+
+---
+
+## Integration with Agent Nodes
+
+The SSH client is used throughout agent nodes:
+
+### monitor_node
+
+```python
+from src.tools.ssh import SSHClient
+from src.core.config import config
+
+def get_ssh_client():
+    return SSHClient(
+        hostname=config.SSH_HOST,
+        port=config.SSH_PORT,
+        username=config.SSH_USER,
+        password=config.SSH_PASS
+    )
+
+def monitor_node(state):
+    ssh = get_ssh_client()
+    
+    for service_name, service_cfg in config.SERVICES.items():
+        code, out, err = ssh.execute_command(service_cfg["check_command"])
+        is_running = service_cfg["running_indicator"] in out
+        
+        if not is_running:
+            ssh.close()
+            return {
+                "current_error": f"Service {service_name} is down",
+                "affected_service": service_name
+            }
+    
+    ssh.close()
+    return {"current_error": None}
+```
+
+### execute_node
+
+```python
+def execute_node(state):
+    plan = state.get("candidate_plan", "")
+    commands = plan.split("\n")
+    
+    ssh = get_ssh_client()
+    results = []
+    
+    for command in commands:
+        needs_sudo = command.startswith("sudo")
+        clean = command.replace("sudo ", "", 1) if needs_sudo else command
+        
+        code, out, err = ssh.execute_command(clean, use_sudo=needs_sudo)
+        results.append(f"[{command}] code:{code} out:{out[:100]}")
+        
+        if code != 0:
+            break
+    
+    ssh.close()
+    return {"diagnosis_log": results}
+```
+
+---
+
+## Advanced Usage
+
+### Context Manager
+
+Create a context manager for automatic cleanup:
+
+```python
+from contextlib import contextmanager
+
+@contextmanager
+def ssh_connection(hostname, username, password):
+    ssh = SSHClient(hostname=hostname, username=username, password=password)
+    ssh.connect()
+    try:
+        yield ssh
+    finally:
+        ssh.close()
+
+# Usage
+with ssh_connection("192.168.1.100", "admin", "pass") as ssh:
+    code, out, err = ssh.execute_command("uptime")
+    print(out)
+# Connection automatically closed
+```
+
+### Key-Based Authentication
+
+```python
+ssh = SSHClient(
+    hostname="production.server.com",
+    username="deploy",
+    key_filename="/home/user/.ssh/id_rsa"
+)
+
+ssh.connect()
+code, out, err = ssh.execute_command("docker ps")
+ssh.close()
+```
+
+### Connection Retry Logic
+
+```python
+import time
+
+def connect_with_retry(ssh: SSHClient, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            ssh.connect()
+            return True
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)  # Exponential backoff
+    return False
+
+ssh = SSHClient(hostname="192.168.1.100", username="admin", password="pass")
+
+if connect_with_retry(ssh):
+    code, out, err = ssh.execute_command("hostname")
+    ssh.close()
+else:
+    print("Failed to connect after retries")
+```
+
+### Parallel Execution
+
+```python
+import concurrent.futures
+
+def check_server(hostname):
+    ssh = SSHClient(hostname=hostname, username="admin", password="pass")
+    ssh.connect()
+    code, out, err = ssh.execute_command("uptime")
+    ssh.close()
+    return hostname, out
+
+servers = ["192.168.1.100", "192.168.1.101", "192.168.1.102"]
+
+with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    futures = [executor.submit(check_server, srv) for srv in servers]
+    
+    for future in concurrent.futures.as_completed(futures):
+        hostname, uptime = future.result()
+        print(f"{hostname}: {uptime}")
+```
+
+---
+
+## Security Considerations
+
+<Warning>
+  **Never hardcode credentials in source code.** Use environment variables or secure credential stores.
+</Warning>
+
+### Using Environment Variables
+
+```python
+import os
+
+ssh = SSHClient(
+    hostname=os.getenv("SSH_HOST"),
+    username=os.getenv("SSH_USER"),
+    password=os.getenv("SSH_PASS")
+)
+```
+
+### Validating Commands
+
+Before executing, validate against a whitelist:
+
+```python
+from src.core.security import validate_command
+
+def safe_execute(ssh: SSHClient, command: str, use_sudo: bool = False):
+    is_valid, reason = validate_command(command)
+    
+    if not is_valid:
+        raise ValueError(f"Command blocked: {reason}")
+    
+    return ssh.execute_command(command, use_sudo=use_sudo)
+
+# Usage
+ssh = SSHClient(hostname="192.168.1.100", username="admin", password="pass")
+ssh.connect()
+
+try:
+    code, out, err = safe_execute(ssh, "rm -rf /important/data", use_sudo=True)
+except ValueError as e:
+    print(e)  # Command blocked: Destructive rm -rf pattern
+
+ssh.close()
+```
+
+---
+
+## Error Handling
+
+```python
+from paramiko import AuthenticationException, SSHException
+import socket
+
+ssh = SSHClient(hostname="192.168.1.100", username="admin", password="wrong")
+
+try:
+    ssh.connect()
+    code, out, err = ssh.execute_command("uptime")
+except AuthenticationException:
+    print("Invalid credentials")
+except SSHException as e:
+    print(f"SSH protocol error: {e}")
+except socket.timeout:
+    print("Connection timeout")
+except Exception as e:
+    print(f"Unexpected error: {e}")
+finally:
+    ssh.close()
+```
+
+---
+
+## Configuration
+
+SSH settings from `config.py`:
+
+<ParamField path="SSH_HOST" type="str" required>
+  Hostname or IP of the remote server
+</ParamField>
+
+<ParamField path="SSH_PORT" type="int" default="22">
+  SSH port number
+</ParamField>
+
+<ParamField path="SSH_USER" type="str" required>
+  SSH username
+</ParamField>
+
+<ParamField path="SSH_PASS" type="str" required>
+  SSH password (for sudo commands)
+</ParamField>
+
+---
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Agent Nodes" icon="cube" href="/sdk/nodes">
+    Use SSH client in monitor, execute, and verify nodes
+  </Card>
+  <Card title="Security" icon="shield" href="/sdk/security">
+    Command validation and security policies
+  </Card>
+  <Card title="Configuration" icon="gear" href="/sdk/config">
+    Configure SSH connection parameters
+  </Card>
+  <Card title="Utils" icon="wrench" href="/sdk/utils">
+    Interruption handling with check_stop()
+  </Card>
+</CardGroup>

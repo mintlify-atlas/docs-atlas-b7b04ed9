@@ -1,0 +1,149 @@
+---
+title: API Overview
+description: Introduction to the Sentinel AI REST API
+---
+
+## Introduction
+
+The Sentinel AI API provides programmatic access to monitor and manage services, interact with the autonomous agent, and query the knowledge base. Built with FastAPI, the API follows REST principles and returns JSON responses.
+
+## Base URL
+
+The default base URL for the API is:
+
+```
+http://localhost:8000
+```
+
+<Note>
+  The actual host and port may vary based on your deployment configuration.
+</Note>
+
+## API Version
+
+Current API version: **2.0.0**
+
+## Authentication
+
+The current version of the Sentinel AI API does not require authentication. CORS is enabled for all origins to facilitate development and integration.
+
+<Warning>
+  In production environments, it's recommended to implement proper authentication and restrict CORS origins.
+</Warning>
+
+## Common Patterns
+
+### Response Format
+
+All endpoints return JSON responses. Successful responses typically include:
+
+- `status`: Operation status (e.g., "ok", "started", "stopping")
+- `message`: Human-readable message describing the result
+- Additional fields specific to the endpoint
+
+### Error Handling
+
+The API uses standard HTTP status codes:
+
+- `200`: Successful operation
+- `400`: Bad request (invalid parameters)
+- `404`: Resource not found
+- `409`: Conflict (e.g., agent already running)
+- `503`: Service unavailable (e.g., knowledge base initializing)
+
+Error responses include a `detail` field with information about the error:
+
+```json
+{
+  "detail": "Agent is already running"
+}
+```
+
+## Health Check
+
+A simple health check endpoint is available at the root:
+
+```bash
+GET /
+```
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "service": "Sentinel AI API",
+  "mode": "on-demand",
+  "agent_status": "idle"
+}
+```
+
+## Endpoint Categories
+
+The API is organized into the following categories:
+
+<CardGroup cols={2}>
+  <Card title="Agent Control" icon="robot" href="/api/agent">
+    Start, stop, and manage the autonomous monitoring agent
+  </Card>
+  <Card title="Service Management" icon="server" href="/api/services">
+    Monitor services and manage service configurations
+  </Card>
+  <Card title="Chat Interface" icon="message" href="/api/chat">
+    Query the knowledge base with streaming responses
+  </Card>
+  <Card title="WebSocket Logs" icon="broadcast-tower" href="/api/websocket">
+    Real-time log streaming via WebSocket connection
+  </Card>
+</CardGroup>
+
+## Real-time Updates
+
+Sentinel AI supports real-time event streaming through:
+
+1. **WebSocket**: Connect to `/ws/logs` for live log events
+2. **Server-Sent Events (SSE)**: The `/chat` endpoint streams responses as SSE
+
+## Configuration Endpoint
+
+Retrieve current system configuration:
+
+```bash
+GET /config
+```
+
+**Response:**
+
+```json
+{
+  "services": ["nginx", "postgresql", "redis"],
+  "interval": 300,
+  "max_retries": 3,
+  "mode": "on-demand"
+}
+```
+
+<ResponseField name="services" type="array">
+  List of monitored service names
+</ResponseField>
+
+<ResponseField name="interval" type="integer">
+  Monitoring interval in seconds
+</ResponseField>
+
+<ResponseField name="max_retries" type="integer">
+  Maximum retry attempts for failed operations
+</ResponseField>
+
+<ResponseField name="mode" type="string">
+  Agent operation mode ("on-demand" or "continuous")
+</ResponseField>
+
+## Next Steps
+
+Explore the specific endpoint documentation:
+
+- [Agent Control](/api/agent) - Control the autonomous monitoring agent
+- [Service Management](/api/services) - Manage monitored services
+- [Chat Interface](/api/chat) - Query the knowledge base
+- [WebSocket](/api/websocket) - Real-time log streaming

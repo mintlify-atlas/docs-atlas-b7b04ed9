@@ -1,0 +1,345 @@
+---
+title: "Memory System"
+description: "Episodic memory for learning from past executions"
+---
+
+# Memory System
+
+Sentinel AI includes an episodic memory system that stores all agent executions, allowing it to learn from past successes and failures.
+
+## Overview
+
+The memory system (`src/core/memory.py`) records every diagnosis, command, and outcome. This enables:
+
+- **Avoiding failed commands** — Don't retry commands that previously failed for similar errors
+- **Reusing successful solutions** — Apply working fixes to similar problems
+- **Learning patterns** — Build knowledge over time about common failures
+
+## AgentMemory Class
+
+From `src/core/memory.py:11`:
+
+```python src/core/memory.py
+class AgentMemory:
+    def __init__(self):
+        os.makedirs(config.MEMORY_DIR, exist_ok=True)
+        self.episodes = self._load()
+
+    def _load(self) -> List[Dict]:
+        if os.path.exists(EPISODES_FILE):
+            with open(EPISODES_FILE, "r") as f:
+                return json.load(f)
+        return []
+
+    def _save(self):
+        with open(EPISODES_FILE, "w") as f:
+            json.dump(self.episodes, f, indent=2, ensure_ascii=False)
+```
+
+## Episode Structure
+
+Each episode contains:
+
+<ParamField path="timestamp" type="string" required>
+  ISO 8601 timestamp of when the episode occurred
+</ParamField>
+
+<ParamField path="error" type="string" required>
+  The error message that triggered the repair
+</ParamField>
+
+<ParamField path="diagnosis" type="string" required>
+  AI-generated diagnosis of the root cause
+</ParamField>
+
+<ParamField path="command" type="string" required>
+  The command that was executed
+</ParamField>
+
+<ParamField path="result" type="string" required>
+  Output from command execution
+</ParamField>
+
+<ParamField path="success" type="boolean" required>
+  Whether the command successfully resolved the issue
+</ParamField>
+
+### Example Episode
+
+```json data/memory/episodes.json
+{
+  "timestamp": "2026-03-09T15:30:45.123456",
+  "error": "nginx: [emerg] bind() to 0.0.0.0:80 failed (98: Address already in use)",
+  "diagnosis": "Port 80 is occupied by another process. Need to identify and stop the conflicting process.",
+  "command": "sudo fuser -k 80/tcp && sudo service nginx start",
+  "result": "nginx started successfully",
+  "success": true
+}
+```
+
+## Saving Episodes
+
+Episodes are automatically saved after command execution. From `src/core/memory.py:26`:
+
+```python src/core/memory.py
+def save_episode(self, error: str, diagnosis: str, command: str, result: str, success: bool):
+    episode = {
+        "timestamp": datetime.now().isoformat(),
+        "error": error,
+        "diagnosis": diagnosis,
+        "command": command,
+        "result": result,
+        "success": success
+    }
+    self.episodes.append(episode)
+    self._save()
+    print(f"[MEMORIA] Episodio registrado: {'exitoso' if success else 'fallido'}")
+```
+
+This is called from the execute node (`src/agent/nodes/execute.py:51`):
+
+```python src/agent/nodes/execute.py
+from src.core.memory import memory
+
+memory.save_episode(
+    error=error,
+    diagnosis=diagnosis,
+    command=cmd,
+    result=result,
+    success=success
+)
+```
+
+## Finding Similar Cases
+
+The memory system uses keyword matching to find similar past episodes. From `src/core/memory.py:39`:
+
+```python src/core/memory.py
+def find_similar(self, error: str) -> Optional[Dict]:
+    error_lower = error.lower()
+    error_keywords = set(error_lower.split())
+
+    best_match = None
+    best_score = 0
+
+    for ep in reversed(self.episodes):
+        ep_keywords = set(ep["error"].lower().split())
+        overlap = len(error_keywords & ep_keywords)
+        if overlap > best_score:
+            best_score = overlap
+            best_match = ep
+
+    if best_match and best_score >= 2:
+        return best_match
+    return None
+```
+
+### Usage in Diagnosis
+
+The diagnose node consults memory before using RAG (`src/agent/nodes/diagnose.py:24`):
+
+```python src/agent/nodes/diagnose.py
+from src.core.memory import memory
+
+similar_episode = memory.find_similar(error)
+
+if similar_episode:
+    if similar_episode["success"]:
+        diagnosis = f"Memoria: Este error se resolvio antes con: {similar_episode['command']}"
+        log("diagnose", f"Solucion encontrada en memoria: {similar_episode['command']}")
+    else:
+        diagnosis = f"Memoria: Comando '{similar_episode['command']}' fallo antes. Consultando RAG..."
+        log("diagnose", f"Comando fallido detectado: {similar_episode['command']}")
+```
+
+## Avoiding Failed Commands
+
+The plan node uses memory to avoid repeating failed commands. From `src/core/memory.py:57`:
+
+```python src/core/memory.py
+def get_failed_commands(self, error: str) -> List[str]:
+    error_lower = error.lower()
+    error_keywords = set(error_lower.split())
+    failed = set()
+
+    for ep in self.episodes:
+        if not ep["success"]:
+            ep_keywords = set(ep.get("error", "").lower().split())
+            if len(error_keywords & ep_keywords) >= 1:
+                cmd = ep["command"].strip()
+                failed.add(cmd)
+
+    return list(failed)
+```
+
+Used in the plan node (`src/agent/nodes/plan.py:37`):
+
+```python src/agent/nodes/plan.py
+failed_commands = memory.get_failed_commands(error)
+if failed_commands:
+    constraints += f"\n\nCOMANDOS QUE FALLARON ANTES (NO uses estos):\n"
+    for cmd in failed_commands:
+        constraints += f"- {cmd}\n"
+```
+
+## Memory Statistics
+
+Get a summary of memory usage:
+
+```python
+from src.core.memory import memory
+
+print(memory.get_summary())
+# Output: "Total: 47 episodios, 42 exitosos, 5 fallidos"
+```
+
+From `src/core/memory.py:73`:
+
+```python src/core/memory.py
+def get_summary(self) -> str:
+    total = len(self.episodes)
+    successes = sum(1 for ep in self.episodes if ep["success"])
+    failures = total - successes
+    return f"Total: {total} episodios, {successes} exitosos, {failures} fallidos"
+```
+
+## Accessing Memory via API
+
+Retrieve all episodes through the API:
+
+<CodeGroup>
+
+```bash cURL
+curl http://localhost:8000/memory
+```
+
+```python Python
+import requests
+
+response = requests.get("http://localhost:8000/memory")
+episodes = response.json()
+
+for episode in episodes:
+    print(f"{episode['timestamp']}: {episode['error'][:50]}... -> {'✓' if episode['success'] else '✗'}")
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/memory')
+  .then(res => res.json())
+  .then(episodes => {
+    episodes.forEach(ep => {
+      console.log(`${ep.timestamp}: ${ep.error.slice(0, 50)}... -> ${ep.success ? '✓' : '✗'}`);
+    });
+  });
+```
+
+</CodeGroup>
+
+## Storage Location
+
+Episodes are stored in `data/memory/episodes.json`. From `src/core/memory.py:8`:
+
+```python src/core/memory.py
+EPISODES_FILE = os.path.join(config.MEMORY_DIR, "episodes.json")
+```
+
+The memory directory is created automatically if it doesn't exist.
+
+## Memory Persistence
+
+Memory persists across agent restarts. All episodes remain in `episodes.json` until manually cleared.
+
+### Clearing Memory
+
+To reset memory:
+
+```bash
+rm data/memory/episodes.json
+```
+
+Or programmatically:
+
+```python
+import os
+from src.core.config import config
+
+episo des_file = os.path.join(config.MEMORY_DIR, "episodes.json")
+if os.path.exists(episodes_file):
+    os.remove(episodes_file)
+```
+
+## Benefits of Memory System
+
+<CardGroup cols={2}>
+  <Card title="Learning" icon="graduation-cap">
+    Agent improves over time by remembering solutions
+  </Card>
+  <Card title="Efficiency" icon="bolt">
+    Skip RAG queries when similar cases exist in memory
+  </Card>
+  <Card title="Reliability" icon="shield-check">
+    Avoid repeating commands that previously failed
+  </Card>
+  <Card title="Debugging" icon="magnifying-glass">
+    Full audit trail of all agent decisions
+  </Card>
+</CardGroup>
+
+## Example: Memory-Driven Workflow
+
+```python
+from src.core.memory import memory
+from src.core.knowledge import kb
+
+# 1. Check memory first
+similar = memory.find_similar(error)
+
+if similar and similar["success"]:
+    # Use the successful command from memory
+    command = similar["command"]
+    diagnosis = f"Solution from memory: {command}"
+else:
+    # No successful match, use RAG
+    diagnosis = kb.query(f"How to fix: {error}")
+    
+    # Avoid commands that failed before
+    failed_commands = memory.get_failed_commands(error)
+    # ... generate new command avoiding failed_commands
+
+# 2. Execute command
+result = ssh.execute_command(command)
+
+# 3. Save to memory
+memory.save_episode(
+    error=error,
+    diagnosis=diagnosis,
+    command=command,
+    result=result[1],
+    success=(result[0] == 0)
+)
+```
+
+<Note>
+  Memory matching uses keyword overlap, requiring at least 2 common keywords for a match. This prevents false positives while capturing genuinely similar errors.
+</Note>
+
+<Warning>
+  Large memory files (thousands of episodes) may slow down similarity searches. Consider implementing periodic archiving for production deployments.
+</Warning>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Diagnosis" icon="magnifying-glass" href="/operations/diagnosis">
+    How memory is used in diagnosis
+  </Card>
+  <Card title="Planning" icon="list-check" href="/operations/planning">
+    How failed commands are avoided
+  </Card>
+  <Card title="Execution" icon="play" href="/operations/execution">
+    When episodes are saved
+  </Card>
+  <Card title="Memory API" icon="code" href="/api/agent">
+    GET /memory endpoint reference
+  </Card>
+</CardGroup>

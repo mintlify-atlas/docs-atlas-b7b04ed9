@@ -1,0 +1,282 @@
+---
+title: "Custom Services"
+description: "Add custom services to Sentinel AI monitoring"
+---
+
+# Custom Services
+
+Sentinel AI can monitor any service that provides a status command. This guide shows you how to add custom services to the monitoring system.
+
+## Service Configuration Schema
+
+Each service requires four properties:
+
+<ParamField path="name" type="string" required>
+  Unique identifier for the service
+</ParamField>
+
+<ParamField path="check_command" type="string" required>
+  Shell command to check service status (e.g., `service nginx status`)
+</ParamField>
+
+<ParamField path="running_indicator" type="string" required>
+  String to look for in the output to confirm service is running (e.g., `"is running"`)
+</ParamField>
+
+<ParamField path="type" type="string" required>
+  Service category: `web_server`, `database`, `container`, `custom`
+</ParamField>
+
+## Adding Services Programmatically
+
+From `src/core/config.py:74`:
+
+```python src/core/config.py
+def add_service(self, name, check_cmd, indicator, service_type):
+    self.SERVICES[name] = {
+        "check_command": check_cmd,
+        "running_indicator": indicator,
+        "type": service_type
+    }
+    self.save_services()
+```
+
+### Example: Add Docker Service
+
+```python
+from src.core.config import config
+
+config.add_service(
+    name="docker",
+    check_cmd="systemctl status docker",
+    indicator="active (running)",
+    service_type="container"
+)
+```
+
+## Adding Services via API
+
+Use the `POST /services` endpoint:
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST http://localhost:8000/services \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "redis",
+    "check_command": "systemctl status redis",
+    "running_indicator": "active (running)",
+    "type": "database"
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:8000/services",
+    json={
+        "name": "redis",
+        "check_command": "systemctl status redis",
+        "running_indicator": "active (running)",
+        "type": "database"
+    }
+)
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/services', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    name: 'redis',
+    check_command: 'systemctl status redis',
+    running_indicator: 'active (running)',
+    type: 'database'
+  })
+});
+```
+
+</CodeGroup>
+
+## Common Service Examples
+
+<CardGroup cols={2}>
+  <Card title="Redis" icon="database">
+    In-memory data store
+  </Card>
+  <Card title="MongoDB" icon="leaf">
+    NoSQL document database
+  </Card>
+  <Card title="Apache" icon="server">
+    Web server
+  </Card>
+  <Card title="Memcached" icon="memory">
+    Distributed caching
+  </Card>
+</CardGroup>
+
+### Redis
+
+```json
+{
+  "name": "redis",
+  "check_command": "systemctl status redis",
+  "running_indicator": "active (running)",
+  "type": "database"
+}
+```
+
+### MongoDB
+
+```json
+{
+  "name": "mongodb",
+  "check_command": "systemctl status mongod",
+  "running_indicator": "active (running)",
+  "type": "database"
+}
+```
+
+### Apache
+
+```json
+{
+  "name": "apache",
+  "check_command": "systemctl status apache2",
+  "running_indicator": "active (running)",
+  "type": "web_server"
+}
+```
+
+### Docker Containers
+
+```json
+{
+  "name": "my-app",
+  "check_command": "docker ps | grep my-app",
+  "running_indicator": "Up",
+  "type": "container"
+}
+```
+
+### Custom Applications
+
+```json
+{
+  "name": "myapp",
+  "check_command": "pgrep -f myapp.py",
+  "running_indicator": "[0-9]",
+  "type": "custom"
+}
+```
+
+## Service Configuration File
+
+Services are stored in `data/services.json`. From `src/core/config.py:60`:
+
+```python src/core/config.py
+def load_services(self):
+    if os.path.exists(self.SERVICES_FILE):
+        try:
+            with open(self.SERVICES_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return self.DEFAULT_SERVICES.copy()
+    return self.DEFAULT_SERVICES.copy()
+```
+
+### Example Configuration
+
+```json data/services.json
+{
+  "nginx": {
+    "check_command": "service nginx status",
+    "running_indicator": "is running",
+    "type": "web_server"
+  },
+  "postgresql": {
+    "check_command": "service postgresql status",
+    "running_indicator": "online",
+    "type": "database"
+  },
+  "redis": {
+    "check_command": "systemctl status redis",
+    "running_indicator": "active (running)",
+    "type": "database"
+  }
+}
+```
+
+## Removing Services
+
+### Via API
+
+```bash
+curl -X DELETE http://localhost:8000/services/redis
+```
+
+### Programmatically
+
+```python
+from src.core.config import config
+
+config.remove_service("redis")
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Systemd" icon="cog">
+    Prefer `systemctl status` for better reliability
+  </Card>
+  <Card title="Test Commands" icon="flask">
+    Always test check commands on the target server first
+  </Card>
+  <Card title="Unique Indicators" icon="fingerprint">
+    Choose indicators that won't match error states
+  </Card>
+  <Card title="Service Types" icon="tags">
+    Use appropriate types for dashboard grouping
+  </Card>
+</CardGroup>
+
+<Note>
+  The agent checks services every 30 seconds by default. Configure `MONITOR_INTERVAL` in your environment to change this.
+</Note>
+
+<Warning>
+  Ensure the SSH user has permission to run status commands without requiring additional authentication.
+</Warning>
+
+## Testing Service Configuration
+
+Test your service configuration manually:
+
+```bash
+# SSH into your server
+ssh sentinel@your-server
+
+# Run the check command
+systemctl status redis
+
+# Verify the running indicator appears in the output
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Service Configuration" icon="gear" href="/configuration/services">
+    Learn about service configuration
+  </Card>
+  <Card title="Services API" icon="code" href="/api/services">
+    Explore the services API
+  </Card>
+  <Card title="Monitoring" icon="eye" href="/operations/monitoring">
+    How service monitoring works
+  </Card>
+  <Card title="SSH Setup" icon="terminal" href="/configuration/ssh-setup">
+    Configure SSH access
+  </Card>
+</CardGroup>

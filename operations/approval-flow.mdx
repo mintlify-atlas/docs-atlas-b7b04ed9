@@ -1,0 +1,273 @@
+---
+title: 'Approval Flow'
+description: 'Security validation and risk assessment for remediation commands'
+icon: 'shield-check'
+---
+
+The approval node serves as a critical security gate, evaluating every proposed remediation command against security policies and determining whether execution can proceed autonomously or requires human approval.
+
+## Overview
+
+Before any remediation commands are executed, they must pass through a multi-tier security validation system that identifies forbidden operations, critical commands, and ensures compliance with organizational policies.
+
+<Warning>
+  The approval node is a mandatory security control. Commands cannot bypass this validation step.
+</Warning>
+
+## Approval Workflow
+
+<Steps>
+  <Step title="Plan Extraction">
+    Retrieves the candidate remediation plan from state:
+    
+    ```python
+    plan = state.get("candidate_plan", "")
+    service = state.get("affected_service", "desconocido")
+    commands = [cmd.strip() for cmd in plan.split("\n") if cmd.strip()]
+    ```
+  </Step>
+
+  <Step title="Security Validation">
+    Each command is validated against forbidden patterns:
+    
+    ```python
+    for cmd in commands:
+        is_valid, reason = validate_command(cmd)
+        if not is_valid:
+            log("security", f"BLOQUEADO: {cmd} -> {reason}")
+            return {
+                "current_step": "approval",
+                "approval_status": "REJECTED",
+                "security_flags": security_flags,
+                "escalation_reason": reason
+            }
+    ```
+  </Step>
+
+  <Step title="Risk Assessment">
+    Commands that pass validation are assessed for criticality:
+    
+    ```python
+    if is_critical(cmd):
+        has_critical = True
+        security_flags.append(f"CRITICO: {cmd}")
+    ```
+  </Step>
+
+  <Step title="Approval Decision">
+    Based on risk level, the node determines the execution path:
+    
+    - **REJECTED**: Forbidden command detected, execution blocked
+    - **WAITING_APPROVAL**: Critical commands require human approval
+    - **APPROVED**: Safe commands proceed to automatic execution
+  </Step>
+</Steps>
+
+## Security Validation
+
+The `validate_command` function checks against forbidden patterns defined in the security module:
+
+```python
+FORBIDDEN_PATTERNS = [
+    r"rm\s+-rf\s+/\s*$",      # Recursive root deletion
+    r"rm\s+-rf\s+/\*",         # Wildcard root deletion
+    r"mkfs\.",                  # Filesystem formatting
+    r"dd\s+if=",                # Direct disk writes
+    r":\(\)\{.*\|.*&\}\;",     # Fork bombs
+    r"shutdown\s",              # System shutdown
+    r"reboot\s*$",              # System reboot
+    r"halt\s*$",                # System halt
+    r"init\s+0",                # Runlevel 0
+    r"fdisk\s",                 # Disk partitioning
+    r"parted\s",                # Partition editor
+    r"wipefs\s",                # Filesystem signature wipe
+    r">\s*/dev/sd",             # Direct disk writes
+    r"chmod\s+-R\s+777\s+/\s*$", # Dangerous permissions
+    r"chown\s+-R.*:\s*/\s*$",   # Recursive ownership changes
+]
+```
+
+<Note>
+  These patterns represent destructive or irreversible operations that could compromise system stability or security.
+</Note>
+
+## Critical Command Detection
+
+Commands classified as critical require human review:
+
+```python
+CRITICAL_PATTERNS = [
+    r"\brm\b",                      # File deletion
+    r"\bdelete\b",                  # Deletion operations
+    r"\bdrop\b",                    # Database drops
+    r"\btruncate\b",                # Data truncation
+    r"\bkill\s+-9\b",               # Force kill
+    r"\bsystemctl\s+stop\b",       # Service stop
+    r"\bsystemctl\s+restart\b",    # Service restart
+    r"\bservice\s+\S+\s+stop\b",   # Service stop
+    r"\bservice\s+\S+\s+restart\b", # Service restart
+    r"\biptables\b",                # Firewall rules
+    r"\bufw\b",                     # Firewall management
+    r"\bpasswd\b",                  # Password changes
+    r"\busermod\b",                 # User modification
+    r"\buserdel\b",                 # User deletion
+    r"\bchmod\b",                   # Permission changes
+    r"\bchown\b",                   # Ownership changes
+    r"\bmv\s+/",                    # System file moves
+    r"\bcp\s+/dev/",                # Device file copies
+    r"\bapt\b",                     # Package operations
+    r"\bapt-get\b",                 # Package operations
+    r"\byum\b",                     # Package operations
+    r"\bdnf\b",                     # Package operations
+    r"\binstall\b",                 # Installation operations
+]
+```
+
+<Info>
+  Critical commands aren't forbidden, but they require explicit human approval before execution.
+</Info>
+
+## Approval States
+
+The approval node can return three distinct states:
+
+<CardGroup cols={3}>
+  <Card title="REJECTED" icon="ban" color="#dc2626">
+    Command violates security policy
+    
+    - Execution completely blocked
+    - Escalation reason logged
+    - Requires plan regeneration
+  </Card>
+  
+  <Card title="WAITING_APPROVAL" icon="clock" color="#f59e0b">
+    Critical command detected
+    
+    - Pauses workflow
+    - Notifies operators
+    - Awaits manual approval
+  </Card>
+  
+  <Card title="APPROVED" icon="circle-check" color="#16a34a">
+    Safe for automatic execution
+    
+    - Workflow continues
+    - Executes immediately
+    - Full audit logging
+  </Card>
+</CardGroup>
+
+## Rejection Response
+
+When a command is rejected:
+
+```python
+if not is_valid:
+    log("security", f"BLOQUEADO: {cmd} -> {reason}")
+    security_flags.append(f"BLOQUEADO: {reason}")
+    return {
+        "current_step": "approval",
+        "approval_status": "REJECTED",
+        "security_flags": security_flags,
+        "escalation_reason": reason
+    }
+```
+
+<Warning>
+  Rejected commands halt the remediation workflow. The agent must generate a new plan that complies with security policies.
+</Warning>
+
+## Critical Command Handling
+
+When critical commands are detected:
+
+```python
+if has_critical:
+    log("warning", "Comandos criticos detectados. Solicitando aprobacion manual.")
+    return {
+        "current_step": "approval",
+        "approval_status": "WAITING_APPROVAL",
+        "security_flags": security_flags
+    }
+```
+
+This pauses the workflow and notifies human operators for review.
+
+## Automatic Approval
+
+Safe commands proceed without human intervention:
+
+```python
+else:
+    log("approve", "Comandos seguros. Ejecucion automatica.")
+    
+return {
+    "current_step": "approval",
+    "approval_status": "APPROVED",
+    "security_flags": security_flags
+}
+```
+
+<Tip>
+  Automatic approval enables true autonomous operation for common, low-risk remediation tasks.
+</Tip>
+
+## Security Flags
+
+The `security_flags` array accumulates security observations:
+
+```python
+security_flags = []
+
+# Rejected command
+security_flags.append(f"BLOQUEADO: {reason}")
+
+# Critical command
+security_flags.append(f"CRITICO: {cmd}")
+```
+
+These flags provide audit trail and observability into security decisions.
+
+## State Updates
+
+The approval node updates these state fields:
+
+<CardGroup cols={2}>
+  <Card title="approval_status" icon="check-to-slot">
+    One of: REJECTED, WAITING_APPROVAL, or APPROVED
+  </Card>
+  
+  <Card title="security_flags" icon="flag">
+    Array of security observations and warnings
+  </Card>
+  
+  <Card title="escalation_reason" icon="triangle-exclamation">
+    Explanation for rejections (if applicable)
+  </Card>
+  
+  <Card title="current_step" icon="location-dot">
+    Set to "approval" to mark workflow position
+  </Card>
+</CardGroup>
+
+## Integration with Execution
+
+The execute node checks approval status before proceeding:
+
+```python
+if state.get("approval_status") != "APPROVED":
+    log("warning", "Comando no aprobado. Saltando ejecucion.")
+    return {"current_step": "execute"}
+```
+
+This ensures no command can execute without passing approval validation.
+
+## Implementation Location
+
+Source: `src/agent/nodes/approve.py:7`
+
+Security module: `src/core/security.py:50`
+
+## Next Steps
+
+After approval is granted, the workflow proceeds to [execution](/operations/execution) where approved commands are run on the target system via SSH.

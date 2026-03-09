@@ -1,0 +1,580 @@
+---
+title: AI Models Configuration
+description: Configure AI models, embeddings, and RAG settings for Sentinel AI
+icon: 'brain'
+---
+
+Sentinel AI uses multiple AI models for reasoning, embeddings, and retrieval. This guide covers model configuration and customization.
+
+## Model Architecture
+
+Sentinel AI's AI stack consists of:
+
+<CardGroup cols={2}>
+  <Card title="Language Model" icon="comments">
+    GPT-4o for reasoning, planning, and decision-making
+  </Card>
+  <Card title="Embedding Model" icon="vector-square">
+    text-embedding-3-small for document vectorization
+  </Card>
+  <Card title="Vector Database" icon="database">
+    Pinecone for semantic search and knowledge retrieval
+  </Card>
+  <Card title="Reranker" icon="ranking-star">
+    Cohere Rerank for improving search relevance
+  </Card>
+</CardGroup>
+
+## Primary Language Model
+
+The main reasoning engine uses OpenAI's GPT-4o model:
+
+<CodeGroup>
+```python src/core/config.py
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+MODEL_NAME = "gpt-4o"
+TEMPERATURE = 0
+```
+
+```python src/core/knowledge.py
+self.llm = OpenAI(
+    model=config.MODEL_NAME, 
+    temperature=config.TEMPERATURE
+)
+```
+</CodeGroup>
+
+### Model Parameters
+
+<ParamField path="MODEL_NAME" type="string" default="gpt-4o">
+  The OpenAI model to use for reasoning and text generation.
+  
+  **Supported models:**
+  - `gpt-4o` - Latest GPT-4 optimized model (recommended)
+  - `gpt-4-turbo` - Fast GPT-4 variant
+  - `gpt-4` - Standard GPT-4
+  - `gpt-3.5-turbo` - Faster, cheaper alternative
+  
+  **Defined in:** `src/core/config.py:11`
+</ParamField>
+
+<ParamField path="TEMPERATURE" type="float" default="0">
+  Sampling temperature for response generation.
+  
+  - `0` - Deterministic, consistent responses (recommended for DevOps)
+  - `0.0-0.3` - Focused, predictable outputs
+  - `0.4-0.7` - Balanced creativity and consistency
+  - `0.8-1.0` - More creative, varied responses
+  
+  **Defined in:** `src/core/config.py:12`
+  
+  <Note>
+    Temperature is set to `0` for deterministic DevOps operations. Increase for more creative problem-solving.
+  </Note>
+</ParamField>
+
+### Customizing the Language Model
+
+To use a different model, modify `src/core/config.py`:
+
+<CodeGroup>
+```python Use GPT-4 Turbo
+class Config:
+    MODEL_NAME = "gpt-4-turbo"
+    TEMPERATURE = 0
+```
+
+```python Use GPT-3.5 (Faster/Cheaper)
+class Config:
+    MODEL_NAME = "gpt-3.5-turbo"
+    TEMPERATURE = 0
+```
+
+```python Increase Creativity
+class Config:
+    MODEL_NAME = "gpt-4o"
+    TEMPERATURE = 0.3  # Slight randomness
+```
+</CodeGroup>
+
+<Warning>
+  Changing models may affect reasoning quality. Test thoroughly before deploying to production.
+</Warning>
+
+## Embedding Model
+
+Embeddings convert text into vector representations for semantic search:
+
+<CodeGroup>
+```python src/core/config.py
+EMBED_MODEL = "text-embedding-3-small"
+EMBEDDING_MODEL = EMBED_MODEL
+EMBEDDING_DIM = 1536
+```
+
+```python src/core/knowledge.py
+self.embed_model = OpenAIEmbedding(model=config.EMBEDDING_MODEL)
+```
+</CodeGroup>
+
+### Embedding Parameters
+
+<ParamField path="EMBED_MODEL" type="string" default="text-embedding-3-small">
+  OpenAI embedding model for document vectorization.
+  
+  **Available models:**
+  - `text-embedding-3-small` - 1536 dimensions, fast and efficient (recommended)
+  - `text-embedding-3-large` - 3072 dimensions, higher quality
+  - `text-embedding-ada-002` - Legacy model, 1536 dimensions
+  
+  **Defined in:** `src/core/config.py:19-20`
+</ParamField>
+
+<ParamField path="EMBEDDING_DIM" type="integer" default="1536">
+  Dimension size for embeddings. Must match the model's output dimensions.
+  
+  - `text-embedding-3-small`: 1536 dims
+  - `text-embedding-3-large`: 3072 dims
+  - `text-embedding-ada-002`: 1536 dims
+  
+  **Defined in:** `src/core/config.py:21`
+  
+  <Warning>
+    If you change the embedding model, update `EMBEDDING_DIM` to match and recreate the Pinecone index.
+  </Warning>
+</ParamField>
+
+### Switching Embedding Models
+
+To use a different embedding model:
+
+<Steps>
+  <Step title="Update configuration">
+    Modify `src/core/config.py`:
+    
+    ```python
+    EMBED_MODEL = "text-embedding-3-large"
+    EMBEDDING_MODEL = EMBED_MODEL
+    EMBEDDING_DIM = 3072  # Must match model dimensions
+    ```
+  </Step>
+  
+  <Step title="Delete existing Pinecone index">
+    The index must be recreated with new dimensions:
+    
+    ```python
+    from pinecone import Pinecone
+    from src.core.config import config
+    
+    pc = Pinecone(api_key=config.PINECONE_API_KEY)
+    pc.delete_index(config.PINECONE_INDEX_NAME)
+    ```
+  </Step>
+  
+  <Step title="Re-ingest documents">
+    Restart Sentinel AI and re-ingest your documentation:
+    
+    ```bash
+    python main.py
+    # Use the ingest command to reload manuals
+    ```
+  </Step>
+</Steps>
+
+## Vector Database (Pinecone)
+
+Pinecone stores document embeddings for semantic search:
+
+<CodeGroup>
+```python src/core/config.py
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+PINECONE_INDEX = "sentinel-ai-index"
+PINECONE_INDEX_NAME = PINECONE_INDEX
+```
+
+```python src/core/knowledge.py
+self.pc = Pinecone(api_key=config.PINECONE_API_KEY)
+self.index_name = config.PINECONE_INDEX_NAME
+
+# Create index if it doesn't exist
+self.pc.create_index(
+    name=self.index_name,
+    dimension=config.EMBEDDING_DIM,
+    metric="cosine",
+    spec=ServerlessSpec(cloud="aws", region="us-east-1")
+)
+```
+</CodeGroup>
+
+### Pinecone Configuration
+
+<ParamField path="PINECONE_INDEX" type="string" default="sentinel-ai-index">
+  Name of the Pinecone index for storing document vectors.
+  
+  **Defined in:** `src/core/config.py:15-16`
+  
+  Change this if you want to use a different index or environment.
+</ParamField>
+
+### Index Configuration
+
+The Pinecone index is configured with:
+
+- **Dimension**: 1536 (matches `text-embedding-3-small`)
+- **Metric**: Cosine similarity
+- **Cloud**: AWS
+- **Region**: us-east-1
+- **Type**: Serverless (auto-scaling)
+
+<Accordion title="Customize Index Configuration">
+  Modify `src/core/knowledge.py:27-36` to change index settings:
+  
+  ```python
+  self.pc.create_index(
+      name=self.index_name,
+      dimension=config.EMBEDDING_DIM,
+      metric="cosine",  # or "euclidean", "dotproduct"
+      spec=ServerlessSpec(
+          cloud="aws",  # or "gcp", "azure"
+          region="us-west-2"  # change region
+      )
+  )
+  ```
+</Accordion>
+
+## Reranker (Cohere)
+
+Cohere Rerank improves search relevance by reranking retrieved documents:
+
+<CodeGroup>
+```python src/core/config.py
+COHERE_API_KEY = os.getenv("COHERE_API_KEY")
+```
+
+```python src/core/knowledge.py
+self.reranker = CohereRerank(
+    api_key=config.COHERE_API_KEY,
+    top_n=5
+)
+```
+</CodeGroup>
+
+### Reranker Configuration
+
+<ParamField path="top_n" type="integer" default="5">
+  Number of documents to return after reranking.
+  
+  **Defined in:** `src/core/knowledge.py:23`
+  
+  - Lower values (3-5): Faster, more focused results
+  - Higher values (10-15): More context, slower processing
+</ParamField>
+
+### Customizing Reranker
+
+Modify `src/core/knowledge.py` to adjust reranking behavior:
+
+<CodeGroup>
+```python More Results
+self.reranker = CohereRerank(
+    api_key=config.COHERE_API_KEY,
+    top_n=10  # Return top 10 after reranking
+)
+```
+
+```python Different Model
+self.reranker = CohereRerank(
+    api_key=config.COHERE_API_KEY,
+    model="rerank-english-v2.0",  # Specify rerank model
+    top_n=5
+)
+```
+</CodeGroup>
+
+## RAG Configuration
+
+Retrieval-Augmented Generation (RAG) combines vector search with LLM reasoning:
+
+### Document Chunking
+
+Documents are split into chunks for efficient retrieval:
+
+<CodeGroup>
+```python src/core/knowledge.py
+from llama_index.core.node_parser import SentenceSplitter
+
+splitter = SentenceSplitter(
+    chunk_size=1024,
+    chunk_overlap=200
+)
+```
+</CodeGroup>
+
+<ParamField path="chunk_size" type="integer" default="1024">
+  Maximum number of characters per chunk.
+  
+  - Smaller chunks (512-1024): More precise, faster search
+  - Larger chunks (2048-4096): More context, slower search
+  
+  **Defined in:** `src/core/knowledge.py:62`
+</ParamField>
+
+<ParamField path="chunk_overlap" type="integer" default="200">
+  Number of overlapping characters between chunks.
+  
+  Prevents information loss at chunk boundaries.
+  
+  **Defined in:** `src/core/knowledge.py:62`
+</ParamField>
+
+### Query Optimization
+
+Sentinel AI uses query rewriting to improve search accuracy:
+
+<CodeGroup>
+```python src/core/knowledge.py:98-115
+def _rewrite_query(self, query_text: str, llm) -> list:
+    rewrite_prompt = (
+        "You are a search query optimizer for technical documentation..."
+        "Generate exactly 5 search queries..."
+        "- Query 1: Rephrase in English using official doc terminology\n"
+        "- Query 2: Rephrase in Spanish using technical terminology\n"
+        "- Query 3: Use specific section names, table names, or chapter references\n"
+        "- Query 4: List specific keywords/values the answer would contain\n"
+        "- Query 5: Alternative interpretation\n"
+        f"User question: {query_text}"
+    )
+    response = llm.complete(rewrite_prompt)
+    queries = [q.strip() for q in str(response).strip().split("\n") if q.strip()]
+    queries.insert(0, query_text)  # Include original query
+    return queries[:6]
+```
+</CodeGroup>
+
+<Info>
+  Query rewriting generates 5 variations of each question to improve recall. Results are combined and reranked for relevance.
+</Info>
+
+### Retrieval Settings
+
+<CodeGroup>
+```python src/core/knowledge.py
+# Retrieve top 5 documents per query
+retriever = self.index.as_retriever(similarity_top_k=5)
+
+# Execute multiple queries
+for search_query in search_queries:
+    nodes = retriever.retrieve(search_query)
+    all_nodes.extend(nodes)
+
+# Rerank combined results
+reranked_nodes = self.reranker.postprocess_nodes(
+    all_nodes, 
+    query_str=english_query
+)
+```
+</CodeGroup>
+
+<ParamField path="similarity_top_k" type="integer" default="5">
+  Number of documents to retrieve per query from Pinecone.
+  
+  **Defined in:** `src/core/knowledge.py:126`
+  
+  With 6 query variations × 5 docs each = up to 30 documents retrieved, then reranked to top 5.
+</ParamField>
+
+## LlamaParse Configuration
+
+LlamaParse converts PDF documentation to markdown:
+
+<CodeGroup>
+```python src/core/knowledge.py:42-47
+parser = LlamaParse(
+    api_key=config.LLAMA_CLOUD_API_KEY,
+    result_type="markdown",
+    verbose=True,
+    language="en",
+)
+```
+</CodeGroup>
+
+### Parser Parameters
+
+- **result_type**: Output format (`markdown` or `text`)
+- **verbose**: Enable detailed logging
+- **language**: Primary document language (`en`, `es`, etc.)
+
+<Accordion title="Customize PDF Parsing">
+  Modify `src/core/knowledge.py` to adjust parsing behavior:
+  
+  ```python
+  parser = LlamaParse(
+      api_key=config.LLAMA_CLOUD_API_KEY,
+      result_type="markdown",
+      verbose=False,  # Reduce logging
+      language="es",  # Spanish documents
+      parsing_instruction="Extract technical specifications and commands"
+  )
+  ```
+</Accordion>
+
+## Response Generation
+
+The final response is generated using a structured prompt:
+
+<CodeGroup>
+```python src/core/knowledge.py:141-156
+qa_template_str = (
+    "Eres un asistente tecnico experto. "
+    "Se te proporcionan fragmentos de documentacion tecnica oficial.\n"
+    "---------------------\n"
+    f"{context_str}\n"
+    "---------------------\n"
+    f"Pregunta: {query_text}\n\n"
+    "REGLAS ESTRICTAS:\n"
+    "1. Responde SIEMPRE en espanol.\n"
+    "2. Usa UNICAMENTE la informacion presente en el contexto.\n"
+    "3. NUNCA inventes, supongas ni agregues informacion.\n"
+    "4. Si el contexto contiene tablas, reproducelas completas.\n"
+    "5. Si la informacion esta repartida, combinalos coherentemente.\n"
+    "6. Si no hay informacion suficiente, di exactamente: "
+    "'No encontre informacion especifica sobre eso.'"
+)
+
+response = self.llm.complete(qa_template_str)
+```
+</CodeGroup>
+
+<Note>
+  The system prompt enforces strict adherence to source material, preventing hallucinations and ensuring accurate technical responses.
+</Note>
+
+## Performance Tuning
+
+### Optimize for Speed
+
+<CodeGroup>
+```python Fast Configuration
+# config.py
+MODEL_NAME = "gpt-3.5-turbo"  # Faster model
+TEMPERATURE = 0
+
+# knowledge.py
+SentenceSplitter(chunk_size=512, chunk_overlap=100)  # Smaller chunks
+retriever = self.index.as_retriever(similarity_top_k=3)  # Fewer docs
+CohereRerank(top_n=3)  # Fewer reranked results
+```
+</CodeGroup>
+
+### Optimize for Quality
+
+<CodeGroup>
+```python Quality Configuration
+# config.py
+MODEL_NAME = "gpt-4o"  # Best reasoning
+TEMPERATURE = 0
+EMBED_MODEL = "text-embedding-3-large"  # Better embeddings
+EMBEDDING_DIM = 3072
+
+# knowledge.py
+SentenceSplitter(chunk_size=2048, chunk_overlap=400)  # Larger context
+retriever = self.index.as_retriever(similarity_top_k=10)  # More docs
+CohereRerank(top_n=10)  # More reranked results
+```
+</CodeGroup>
+
+### Optimize for Cost
+
+<CodeGroup>
+```python Cost-Effective Configuration
+# config.py
+MODEL_NAME = "gpt-3.5-turbo"  # Cheaper model
+EMBED_MODEL = "text-embedding-3-small"  # Efficient embeddings
+
+# knowledge.py
+SentenceSplitter(chunk_size=1024, chunk_overlap=200)  # Balanced
+retriever = self.index.as_retriever(similarity_top_k=5)
+CohereRerank(top_n=5)
+```
+</CodeGroup>
+
+## Monitoring and Debugging
+
+### Enable Verbose Logging
+
+<CodeGroup>
+```python Enable Detailed Logs
+# In knowledge.py
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+# LlamaParse verbose mode
+parser = LlamaParse(
+    api_key=config.LLAMA_CLOUD_API_KEY,
+    result_type="markdown",
+    verbose=True  # Enable detailed parsing logs
+)
+```
+</CodeGroup>
+
+### Test RAG Pipeline
+
+<CodeGroup>
+```python test_rag.py
+from src.core.knowledge import VectorKnowledgeBase
+
+def test_rag():
+    kb = VectorKnowledgeBase()
+    
+    # Test query
+    query = "How do I restart PostgreSQL?"
+    response = kb.query(query)
+    
+    print("Query:", query)
+    print("Response:", response)
+    
+    # Test retrieval
+    retriever = kb.index.as_retriever(similarity_top_k=5)
+    nodes = retriever.retrieve(query)
+    print(f"Retrieved {len(nodes)} nodes")
+    for node in nodes:
+        print(f"- {node.metadata.get('file_name')}: {node.get_content()[:100]}...")
+
+if __name__ == "__main__":
+    test_rag()
+```
+</CodeGroup>
+
+## Cost Estimation
+
+Estimate API costs for different configurations:
+
+| Component | Model | Input Cost | Output Cost | Notes |
+|-----------|-------|------------|-------------|-------|
+| LLM | gpt-4o | $2.50/1M tokens | $10/1M tokens | Main reasoning |
+| LLM | gpt-3.5-turbo | $0.50/1M tokens | $1.50/1M tokens | Budget option |
+| Embeddings | text-embedding-3-small | $0.02/1M tokens | - | Document vectorization |
+| Embeddings | text-embedding-3-large | $0.13/1M tokens | - | Higher quality |
+| Rerank | Cohere Rerank | $1.00/1000 searches | - | Per query |
+| Vector DB | Pinecone Serverless | $0.10/1M reads | $2.00/1M writes | Storage + queries |
+
+<Tip>
+  Start with the default configuration (gpt-4o + text-embedding-3-small) for the best balance of quality and cost. Optimize based on your usage patterns.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="gear" href="/configuration/environment">
+    Configure API keys and system settings
+  </Card>
+  <Card title="Services Configuration" icon="server" href="/configuration/services">
+    Define services to monitor
+  </Card>
+  <Card title="Knowledge Base" icon="book" href="/features/knowledge-base">
+    Learn about ingesting documentation
+  </Card>
+  <Card title="Agent Architecture" icon="diagram-project" href="/architecture/agent-graph">
+    Understand how the agent uses these models
+  </Card>
+</CardGroup>

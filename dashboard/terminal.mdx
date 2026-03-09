@@ -1,0 +1,286 @@
+---
+title: Live Terminal
+description: Real-time log streaming with WebSocket connections
+icon: "terminal"
+---
+
+The Terminal component provides a live view of agent activity through WebSocket-based log streaming. It displays color-coded logs with timestamps, allowing you to monitor the agent's decisions and actions in real-time.
+
+## Overview
+
+The terminal interface streams logs directly from the backend using WebSocket connections, providing instant feedback on:
+
+- Service monitoring events
+- Diagnostic findings
+- Execution commands
+- Error messages
+- System notifications
+
+<CardGroup cols={2}>
+  <Card title="Real-time Updates" icon="bolt">
+    WebSocket connection delivers logs with sub-second latency
+  </Card>
+  <Card title="Auto-scrolling" icon="arrow-down">
+    Terminal automatically scrolls to the latest log entry
+  </Card>
+  <Card title="Color-coded Logs" icon="palette">
+    Different log types use distinct colors for easy scanning
+  </Card>
+  <Card title="500 Log Buffer" icon="database">
+    Keeps the last 500 logs in memory to prevent overflow
+  </Card>
+</CardGroup>
+
+## WebSocket Connection
+
+The terminal uses a custom React hook (`useLogs`) to manage the WebSocket connection:
+
+```typescript
+// hooks/use-logs.ts
+export function useLogs() {
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [isConnected, setIsConnected] = useState(false);
+  const ws = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    const connect = () => {
+      // Convert HTTP URL to WebSocket URL
+      const wsUrl = API_URL.replace(/^http/, 'ws') + '/ws/logs';
+      const socket = new WebSocket(wsUrl);
+
+      socket.onopen = () => {
+        setIsConnected(true);
+        setLogs(prev => [...prev, {
+          timestamp: new Date().toISOString(),
+          type: 'system',
+          message: 'Connected to Sentinel AI Event Stream'
+        }]);
+      };
+
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        setLogs(prev => {
+          const newLogs = [...prev, data];
+          return newLogs.slice(-500); // Keep last 500 logs
+        });
+      };
+
+      socket.onclose = () => {
+        setIsConnected(false);
+        setTimeout(connect, 5000); // Reconnect after 5s
+      };
+
+      ws.current = socket;
+    };
+
+    connect();
+    return () => ws.current?.close();
+  }, []);
+
+  return { logs, isConnected };
+}
+```
+
+<Note>
+The WebSocket connection automatically reconnects every 5 seconds if the connection is lost.
+</Note>
+
+## Log Entry Structure
+
+Each log entry follows this TypeScript interface:
+
+```typescript
+export interface LogEntry {
+  timestamp: string;        // ISO 8601 timestamp
+  type: string;            // Log type (monitor, plan, execute, etc.)
+  message: string;         // Human-readable message
+  details?: Record<string, unknown>; // Optional structured data
+}
+```
+
+## Backend WebSocket Handler
+
+The FastAPI backend implements the WebSocket endpoint:
+
+```python
+# src/api/routes.py
+@router.websocket("/ws/logs")
+async def websocket_logs(websocket: WebSocket):
+    await websocket.accept()
+    queue = await bus.subscribe()
+    try:
+        while True:
+            data = await queue.get()
+            await websocket.send_json(data)
+    except WebSocketDisconnect:
+        bus.unsubscribe(queue)
+    except Exception as e:
+        log("error", f"WebSocket error: {e}")
+        bus.unsubscribe(queue)
+```
+
+The backend uses an event bus pattern to distribute logs to all connected WebSocket clients.
+
+<Tip>
+Multiple dashboard instances can connect simultaneously - each receives the same log stream.
+</Tip>
+
+## Terminal UI Component
+
+The Terminal component renders logs with syntax highlighting:
+
+```tsx
+// components/dashboard/Terminal.tsx
+export function Terminal({ logs }: TerminalProps) {
+  const endRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when new logs arrive
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs]);
+
+  const getLogColor = (type: string) => {
+    switch (type.toLowerCase()) {
+      case 'error': return 'text-red-400';
+      case 'warning': return 'text-yellow-400';
+      case 'success': return 'text-green-400';
+      case 'monitor': return 'text-blue-300';
+      case 'plan': return 'text-purple-400';
+      case 'execute': return 'text-orange-400';
+      case 'system': return 'text-gray-400 italic';
+      default: return 'text-gray-300';
+    }
+  };
+
+  return (
+    <div className="rounded-lg border bg-black/40 backdrop-blur-xl">
+      <div className="flex items-center px-4 py-2 border-b">
+        <TerminalIcon className="w-4 h-4 mr-2" />
+        <span className="text-xs">Live Agent Logs</span>
+      </div>
+
+      <div className="overflow-y-auto p-4 space-y-1 font-mono text-sm">
+        {logs.map((log, i) => (
+          <div key={i} className="flex gap-2">
+            <span className="text-muted-foreground text-xs">
+              [{new Date(log.timestamp).toLocaleTimeString()}]
+            </span>
+            <span className={getLogColor(log.type)}>
+              <span className="font-bold mr-2 uppercase text-[10px]">
+                {log.type}
+              </span>
+              {log.message}
+            </span>
+          </div>
+        ))}
+        <div ref={endRef} />
+      </div>
+    </div>
+  );
+}
+```
+
+## Log Types and Colors
+
+<CardGroup cols={2}>
+  <Card title="ERROR" icon="circle-xmark">
+    <span style={{color: '#f87171'}}>Red</span> - Critical errors requiring attention
+  </Card>
+  <Card title="WARNING" icon="triangle-exclamation">
+    <span style={{color: '#fbbf24'}}>Yellow</span> - Warnings and non-critical issues
+  </Card>
+  <Card title="SUCCESS" icon="circle-check">
+    <span style={{color: '#4ade80'}}>Green</span> - Successful operations
+  </Card>
+  <Card title="MONITOR" icon="magnifying-glass">
+    <span style={{color: '#93c5fd'}}>Blue</span> - Service monitoring events
+  </Card>
+  <Card title="PLAN" icon="brain">
+    <span style={{color: '#c084fc'}}>Purple</span> - Planning and decision-making
+  </Card>
+  <Card title="EXECUTE" icon="play">
+    <span style={{color: '#fb923c'}}>Orange</span> - Command execution
+  </Card>
+  <Card title="SYSTEM" icon="gear">
+    <span style={{color: '#9ca3af'}}>Gray</span> - System notifications
+  </Card>
+</CardGroup>
+
+## Connection Status Indicator
+
+The dashboard displays the WebSocket connection status:
+
+```tsx
+// app/page.tsx
+<div className="flex items-center gap-2">
+  <span className={`w-2 h-2 rounded-full ${
+    isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+  }`} />
+  <span className="text-xs text-muted-foreground">
+    {isConnected ? 'Real-time via WebSocket' : 'Connecting...'}
+  </span>
+</div>
+```
+
+<Warning>
+If the connection status shows "Connecting..." for more than 10 seconds, check that the backend server is running and accessible.
+</Warning>
+
+## Example Log Stream
+
+Here's what a typical log stream looks like:
+
+```
+[14:23:45] SYSTEM     Connected to Sentinel AI Event Stream
+[14:23:46] MONITOR    Checking service status for nginx
+[14:23:47] MONITOR    Checking service status for postgresql
+[14:23:48] SUCCESS    All services healthy
+[14:25:12] MONITOR    Service 'nginx' detected as stopped
+[14:25:13] PLAN       Analyzing failure: nginx not responding
+[14:25:14] PLAN       Proposed fix: sudo systemctl restart nginx
+[14:25:15] EXECUTE    Running remediation command
+[14:25:16] SUCCESS    Service restored successfully
+```
+
+## Performance Considerations
+
+<Note>
+**Log Buffer Management**: The terminal keeps only the last 500 logs to prevent memory issues during long-running sessions.
+</Note>
+
+The log buffer is managed automatically:
+
+```typescript
+setLogs(prev => {
+  const newLogs = [...prev, data];
+  return newLogs.slice(-500); // Keep last 500
+});
+```
+
+## Filtering and Search
+
+While the current implementation displays all logs, you can filter by log type:
+
+```typescript
+const filteredLogs = logs.filter(log => 
+  log.type.toLowerCase() === 'error'
+);
+```
+
+<Tip>
+For advanced filtering, consider implementing a search bar that filters logs by type, message content, or time range.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Action History" icon="clock-rotate-left" href="/dashboard/overview">
+    View filtered high-level actions instead of raw logs
+  </Card>
+  <Card title="Chat Interface" icon="message" href="/dashboard/chat">
+    Ask questions about logs using natural language
+  </Card>
+  <Card title="Event Bus" icon="tower-broadcast" href="/architecture/event-bus">
+    Learn about the backend event distribution system
+  </Card>
+</CardGroup>

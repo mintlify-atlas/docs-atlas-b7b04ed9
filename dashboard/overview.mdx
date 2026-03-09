@@ -1,0 +1,202 @@
+---
+title: Dashboard Overview
+description: Learn about the Sentinel AI web dashboard and its core features
+icon: "gauge"
+---
+
+The Sentinel AI dashboard is a Next.js-based web interface that provides real-time monitoring and control of your autonomous DevOps agent. Built with modern web technologies, it offers a responsive and intuitive experience for managing infrastructure health.
+
+## Architecture
+
+The dashboard is built using the following technologies:
+
+- **Framework**: Next.js 14+ with App Router
+- **UI Components**: React with shadcn/ui component library
+- **Styling**: Tailwind CSS with custom design tokens
+- **Real-time Communication**: WebSocket for live log streaming
+- **API Client**: Axios and Fetch API for REST and SSE endpoints
+
+<CardGroup cols={2}>
+  <Card title="Frontend Stack" icon="react">
+    Next.js App Router with TypeScript and React 18+
+  </Card>
+  <Card title="Backend API" icon="server">
+    FastAPI (Python) with CORS and WebSocket support
+  </Card>
+  <Card title="Real-time Updates" icon="bolt">
+    WebSocket connections for live log streaming
+  </Card>
+  <Card title="Responsive Design" icon="mobile">
+    Mobile-first design with Tailwind CSS
+  </Card>
+</CardGroup>
+
+## Main Layout
+
+The dashboard follows a three-column responsive layout:
+
+```tsx
+// app/page.tsx
+export default function Home() {
+  const { logs, isConnected } = useLogs();
+  const [services, setServices] = useState<StatusResponse | null>(null);
+
+  return (
+    <main className="min-h-screen bg-background text-foreground p-4 md:p-6 lg:p-8">
+      <Header />
+      
+      <section className="space-y-4">
+        <StatusGrid services={services} />
+      </section>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* Terminal & History Tabs */}
+        <div className="xl:col-span-2">
+          <Tabs defaultValue="terminal">
+            <TabsContent value="terminal">
+              <Terminal logs={logs} />
+            </TabsContent>
+            <TabsContent value="history">
+              <ActionHistory logs={logs} />
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        {/* Chat Panel */}
+        <div className="space-y-6">
+          <ChatPanel />
+        </div>
+      </div>
+    </main>
+  );
+}
+```
+
+## Key Components
+
+### Header Component
+
+The header displays the agent's current status and provides control buttons:
+
+```tsx
+// components/dashboard/Header.tsx
+export function Header() {
+  const [agentState, setAgentState] = useState<AgentState>({
+    status: 'idle',
+    last_run: null,
+    current_step: null
+  });
+
+  // Poll agent state every 2 seconds
+  useEffect(() => {
+    const poll = async () => {
+      const state = await api.getAgentState();
+      setAgentState(state);
+    };
+    poll();
+    const interval = setInterval(poll, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Render control buttons based on status
+  const renderActions = () => {
+    if (agentState.status === 'waiting') {
+      return <Button>Review Actions</Button>;
+    }
+    if (agentState.status === 'running') {
+      return <Button onClick={handleStop}>Stop Agent</Button>;
+    }
+    return <Button onClick={handleRunScan}>Run Agent Scan</Button>;
+  };
+}
+```
+
+<Note>
+The header polls the `/agent/state` endpoint every 2 seconds to keep the UI synchronized with the backend state.
+</Note>
+
+### Agent States
+
+The dashboard supports the following agent states:
+
+<CardGroup cols={2}>
+  <Card title="Idle" icon="moon">
+    Agent is not running. Ready to start a new scan.
+  </Card>
+  <Card title="Running" icon="play">
+    Agent is actively monitoring and executing remediation tasks.
+  </Card>
+  <Card title="Waiting" icon="clock">
+    Agent requires user approval before executing critical commands.
+  </Card>
+  <Card title="Error" icon="triangle-exclamation">
+    Agent encountered an error during execution.
+  </Card>
+</CardGroup>
+
+## Responsive Breakpoints
+
+The dashboard uses Tailwind CSS breakpoints:
+
+| Breakpoint | Width | Layout |
+|------------|-------|--------|
+| `sm` | 640px | Single column |
+| `md` | 768px | Two-column status grid |
+| `lg` | 1024px | Four-column status grid |
+| `xl` | 1280px | Three-column main layout |
+
+## Environment Variables
+
+Configure the dashboard using the following environment variables:
+
+```bash
+# .env.local
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+<Warning>
+The `NEXT_PUBLIC_` prefix is required for environment variables that need to be accessible in the browser.
+</Warning>
+
+## Starting the Dashboard
+
+To run the development server:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The dashboard will be available at `http://localhost:3000`.
+
+<Tip>
+For production deployments, use `npm run build` followed by `npm start` to serve the optimized build.
+</Tip>
+
+## API Integration
+
+The dashboard communicates with the FastAPI backend through:
+
+1. **REST endpoints** - For status queries and control actions
+2. **WebSocket** - For real-time log streaming
+3. **Server-Sent Events (SSE)** - For streaming chat responses
+
+All API calls are abstracted in `/lib/api.ts` for maintainability.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Terminal" icon="terminal" href="/dashboard/terminal">
+    Learn about the live terminal component
+  </Card>
+  <Card title="Chat Interface" icon="message" href="/dashboard/chat">
+    Explore the RAG-powered chat panel
+  </Card>
+  <Card title="Service Status" icon="activity" href="/dashboard/service-status">
+    Understand service status monitoring
+  </Card>
+  <Card title="Configuration" icon="gear" href="/core-concepts/configuration">
+    Configure dashboard settings
+  </Card>
+</CardGroup>

@@ -1,0 +1,591 @@
+---
+title: Installation
+description: Complete installation guide for Sentinel AI including prerequisites, backend setup, frontend setup, and configuration.
+---
+
+# Installation Guide
+
+This guide provides detailed instructions for installing and configuring Sentinel AI in development and production environments.
+
+## System Requirements
+
+### Hardware
+
+- **CPU**: 2+ cores recommended
+- **RAM**: 4GB minimum, 8GB recommended
+- **Storage**: 2GB for application and dependencies
+- **Network**: Stable internet connection for API calls
+
+### Software Prerequisites
+
+<CardGroup cols={2}>
+  <Card title="Python" icon="python">
+    Python 3.10 or higher required for backend services
+  </Card>
+  
+  <Card title="Node.js" icon="node-js">
+    Node.js 18 or higher required for frontend dashboard
+  </Card>
+  
+  <Card title="SSH Access" icon="terminal">
+    SSH access to target Linux servers for monitoring
+  </Card>
+  
+  <Card title="API Keys" icon="key">
+    OpenAI, Pinecone, Cohere, and LlamaCloud accounts
+  </Card>
+</CardGroup>
+
+## Backend Installation
+
+### Step 1: Clone Repository
+
+```bash
+git clone https://github.com/yourusername/sentinel-ai.git
+cd sentinel-ai
+```
+
+### Step 2: Create Virtual Environment
+
+<CodeGroup>
+```bash Linux/macOS
+python3 -m venv venv
+source venv/bin/activate
+```
+
+```bash Windows (PowerShell)
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+
+```bash Windows (CMD)
+python -m venv venv
+venv\Scripts\activate.bat
+```
+</CodeGroup>
+
+<Tip>
+  Always activate your virtual environment before working with Sentinel AI to avoid dependency conflicts.
+</Tip>
+
+### Step 3: Install Python Dependencies
+
+Install all required packages from `requirements.txt`:
+
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+<Info>
+  Installation includes 25+ packages including FastAPI, LangChain, LlamaIndex, and machine learning libraries. This may take 5-10 minutes.
+</Info>
+
+#### Key Dependencies
+
+The `requirements.txt` file includes:
+
+```txt requirements.txt
+fastapi>=0.109.0              # API framework
+uvicorn>=0.27.0               # ASGI server
+python-dotenv>=1.0.1          # Environment management
+pydantic>=2.6.0               # Data validation
+langchain>=0.1.0              # LLM orchestration
+langchain-openai>=0.0.5       # OpenAI integration
+langgraph>=0.0.10             # Agent workflow graphs
+openai>=1.10.0                # OpenAI client
+paramiko>=3.4.0               # SSH client
+pinecone-client>=3.1.0        # Vector database
+cohere>=5.2.0                 # Reranking service
+llama-index-core>=0.10.11     # RAG framework
+beautifulsoup4>=4.12.3        # HTML parsing
+requests>=2.31.0              # HTTP client
+websockets>=12.0              # WebSocket support
+```
+
+### Step 4: Configure Environment Variables
+
+Create a `.env` file in the project root directory:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your configuration:
+
+```bash .env
+# ============================================
+# AI Service API Keys
+# ============================================
+
+# OpenAI (required for GPT-4 models)
+OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxx
+
+# Pinecone (required for vector storage)
+PINECONE_API_KEY=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+# Cohere (required for reranking)
+COHERE_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# LlamaCloud (optional, for document parsing)
+LLAMA_CLOUD_API_KEY=llx-xxxxxxxxxxxxxxxxxxxxxxxx
+
+# ============================================
+# SSH Configuration
+# ============================================
+
+# Target server hostname or IP
+SSH_HOST=your-server.com
+
+# SSH port (default: 22)
+SSH_PORT=22
+
+# SSH username
+SSH_USER=ubuntu
+
+# SSH password (leave empty if using key-based auth)
+SSH_PASS=
+
+# ============================================
+# Server Configuration
+# ============================================
+
+# API server port
+PORT=8000
+```
+
+<Warning>
+  **Security Best Practices:**
+  - Never commit `.env` to version control
+  - Use SSH key-based authentication instead of passwords
+  - Rotate API keys regularly
+  - Restrict SSH_USER permissions to minimum required
+</Warning>
+
+### Step 5: Configure Pinecone Index
+
+Sentinel AI requires a Pinecone index for the knowledge base:
+
+1. Log in to [Pinecone Console](https://app.pinecone.io/)
+2. Create a new index with these settings:
+   - **Name**: `sentinel-ai-index`
+   - **Dimensions**: `1536` (for OpenAI text-embedding-3-small)
+   - **Metric**: `cosine`
+   - **Cloud**: Choose your preferred region
+
+<Note>
+  The index name must match `PINECONE_INDEX` in `src/core/config.py` (default: `sentinel-ai-index`).
+</Note>
+
+### Step 6: Verify Installation
+
+Test the backend installation:
+
+```bash
+python -c "from src.core.config import config; print('✓ Configuration loaded successfully')"
+```
+
+You should see:
+
+```
+✓ Configuration loaded successfully
+```
+
+## Frontend Installation
+
+### Step 1: Navigate to Frontend Directory
+
+```bash
+cd frontend
+```
+
+### Step 2: Install Node Dependencies
+
+<CodeGroup>
+```bash npm
+npm install
+```
+
+```bash yarn
+yarn install
+```
+
+```bash pnpm
+pnpm install
+```
+
+```bash bun
+bun install
+```
+</CodeGroup>
+
+<Info>
+  The frontend uses Next.js 16 with React 19. Installation typically takes 2-3 minutes.
+</Info>
+
+#### Frontend Dependencies
+
+The `frontend/package.json` includes:
+
+```json package.json
+{
+  "dependencies": {
+    "next": "16.1.6",                          // React framework
+    "react": "19.2.3",                        // UI library
+    "react-dom": "19.2.3",
+    "axios": "^1.13.5",                       // HTTP client
+    "lucide-react": "^0.564.0",               // Icons
+    "@radix-ui/react-collapsible": "^1.1.12", // UI primitives
+    "tailwind-merge": "^3.4.1",               // CSS utilities
+    "react-markdown": "^10.1.0",              // Markdown rendering
+    "recoil": "^0.7.7"                        // State management
+  }
+}
+```
+
+### Step 3: Configure Frontend Environment (Optional)
+
+If your backend runs on a different host or port, create `frontend/.env.local`:
+
+```bash .env.local
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_WS_URL=ws://localhost:8000
+```
+
+<Note>
+  By default, the frontend assumes the backend runs on `http://localhost:8000`. No configuration needed for local development.
+</Note>
+
+### Step 4: Verify Frontend Installation
+
+Check the build configuration:
+
+```bash
+npm run build
+```
+
+A successful build confirms all dependencies are correctly installed.
+
+## Running the Application
+
+### Development Mode
+
+<Steps>
+  <Step title="Start Backend Server">
+    From the project root directory:
+
+    ```bash
+    python run_server.py
+    ```
+
+    Expected output:
+
+    ```
+    INFO:     Will watch for changes in these directories: ['/path/to/sentinel-ai']
+    INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+    INFO:     Started reloader process
+    INFO:     Started server process
+    INFO:     Waiting for application startup.
+    [system] Sentinel AI Iniciado (Modo API) 🚀
+    INFO:     Application startup complete.
+    ```
+
+    The API is now available at `http://localhost:8000`.
+  </Step>
+
+  <Step title="Start Frontend Dashboard">
+    In a new terminal, from the `frontend` directory:
+
+    <CodeGroup>
+    ```bash npm
+    npm run dev
+    ```
+
+    ```bash yarn
+    yarn dev
+    ```
+
+    ```bash pnpm
+    pnpm dev
+    ```
+    </CodeGroup>
+
+    Expected output:
+
+    ```
+    ▲ Next.js 16.1.6
+    - Local:        http://localhost:3000
+    - Network:      http://192.168.1.100:3000
+
+    ✓ Ready in 2.5s
+    ```
+
+    Open your browser to `http://localhost:3000`.
+  </Step>
+</Steps>
+
+### Production Mode
+
+<Steps>
+  <Step title="Build Frontend">
+    ```bash
+    cd frontend
+    npm run build
+    npm run start
+    ```
+
+    This creates an optimized production build.
+  </Step>
+
+  <Step title="Run Backend with Gunicorn (Recommended)">
+    For production deployments, use a production ASGI server:
+
+    ```bash
+    pip install gunicorn
+    gunicorn src.api.server:app \
+      --workers 4 \
+      --worker-class uvicorn.workers.UvicornWorker \
+      --bind 0.0.0.0:8000 \
+      --timeout 120
+    ```
+  </Step>
+</Steps>
+
+## Standalone Agent Mode
+
+You can run the agent without the API/dashboard for CLI-based monitoring:
+
+```bash
+python main.py
+```
+
+This starts the autonomous monitoring loop:
+
+```
+==================================================
+  Sentinel AI - Agente DevOps Autonomo
+==================================================
+[CONFIG] Servicios monitoreados: nginx, postgresql, ssh
+[CONFIG] Intervalo: cada 30s
+[CONFIG] Max reintentos: 5
+[MONITOR] Presiona Ctrl+C para detener
+```
+
+<Info>
+  Standalone mode is useful for headless servers or scripted deployments. The agent will continuously monitor and remediate issues without human interaction (except for approval-required actions).
+</Info>
+
+## Configuration Reference
+
+All configuration is centralized in `src/core/config.py`:
+
+### Core Settings
+
+```python src/core/config.py
+class Config:
+    # AI Models
+    MODEL_NAME = "gpt-4o"                    # OpenAI model
+    TEMPERATURE = 0                          # Deterministic responses
+    EMBED_MODEL = "text-embedding-3-small"   # Embedding model
+    EMBEDDING_DIM = 1536                     # Embedding dimensions
+    
+    # Vector Store
+    PINECONE_INDEX = "sentinel-ai-index"     # Pinecone index name
+    
+    # Monitoring
+    MONITOR_INTERVAL = 30                    # Check every 30 seconds
+    MAX_RETRIES = 5                          # Max remediation attempts
+```
+
+### Default Services
+
+By default, Sentinel AI monitors:
+
+```python
+DEFAULT_SERVICES = {
+    "nginx": {
+        "check_command": "service nginx status",
+        "running_indicator": "is running",
+        "type": "web_server"
+    },
+    "postgresql": {
+        "check_command": "service postgresql status",
+        "running_indicator": "online",
+        "type": "database"
+    },
+    "ssh": {
+        "check_command": "service ssh status",
+        "running_indicator": "is running",
+        "type": "system"
+    }
+}
+```
+
+Services are stored in `data/services.json` and can be modified via API.
+
+## Directory Structure
+
+After installation, your project structure will be:
+
+```
+sentinel-ai/
+├── src/
+│   ├── agent/              # LangGraph agent nodes and workflow
+│   │   ├── nodes/          # Individual agent nodes
+│   │   ├── graph.py        # Agent state machine
+│   │   └── state.py        # Agent state definition
+│   ├── api/                # FastAPI endpoints
+│   │   ├── server.py       # Main API server
+│   │   ├── routes.py       # API routes
+│   │   └── state.py        # Global agent state
+│   ├── core/               # Core services
+│   │   ├── config.py       # Configuration management
+│   │   ├── knowledge.py    # RAG knowledge base
+│   │   ├── memory.py       # Episode memory
+│   │   └── event_bus.py    # Event logging system
+│   └── tools/              # Utility modules
+│       └── ssh.py          # SSH client wrapper
+├── frontend/               # Next.js dashboard
+│   ├── src/                # React components
+│   ├── public/             # Static assets
+│   └── package.json        # Frontend dependencies
+├── data/                   # Runtime data (created on first run)
+│   ├── manuals/            # Technical documentation PDFs
+│   ├── memory/             # Episodic memory storage
+│   └── services.json       # Monitored services config
+├── requirements.txt        # Python dependencies
+├── run_server.py           # API server launcher
+├── main.py                 # Standalone agent launcher
+└── .env                    # Environment variables (you create this)
+```
+
+## Deployment Options
+
+### Docker Deployment (Recommended)
+
+Create a `Dockerfile`:
+
+```dockerfile Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8000
+
+CMD ["python", "run_server.py"]
+```
+
+Build and run:
+
+```bash
+docker build -t sentinel-ai .
+docker run -d -p 8000:8000 --env-file .env sentinel-ai
+```
+
+### Cloud Deployment
+
+<CardGroup cols={2}>
+  <Card title="Render" icon="cloud">
+    Deploy backend as a Web Service with auto-deploy from GitHub.
+  </Card>
+  
+  <Card title="Vercel" icon="triangle">
+    Deploy frontend with automatic HTTPS and global CDN.
+  </Card>
+  
+  <Card title="Railway" icon="train">
+    Full-stack deployment with built-in PostgreSQL if needed.
+  </Card>
+  
+  <Card title="AWS/GCP" icon="server">
+    Enterprise deployment with EC2/Compute Engine + RDS.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### Python Version Issues
+
+```bash
+# Check Python version
+python --version
+
+# If using Python 3.10+, ensure pip is updated
+pip install --upgrade pip setuptools wheel
+```
+
+### Import Errors
+
+If you see `ModuleNotFoundError`, ensure virtual environment is activated:
+
+```bash
+# Reactivate virtual environment
+source venv/bin/activate  # Linux/macOS
+venv\Scripts\activate     # Windows
+
+# Reinstall dependencies
+pip install -r requirements.txt
+```
+
+### Port Already in Use
+
+Change the port in `.env`:
+
+```bash
+PORT=8080
+```
+
+Or specify when running:
+
+```bash
+PORT=8080 python run_server.py
+```
+
+### SSH Connection Refused
+
+Verify SSH access manually:
+
+```bash
+ssh -v user@host -p port
+```
+
+Common issues:
+- Firewall blocking port 22
+- SSH service not running on target
+- Invalid credentials
+- Network connectivity issues
+
+### Knowledge Base Not Loading
+
+Check Pinecone configuration:
+
+```bash
+python -c "from pinecone import Pinecone; pc = Pinecone(api_key='your-key'); print(pc.list_indexes())"
+```
+
+Ensure `sentinel-ai-index` exists and has correct dimensions (1536).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Follow the quickstart guide to run your first analysis.
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/configuration/environment">
+    Customize services, intervals, and agent behavior.
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore all available endpoints and WebSocket events.
+  </Card>
+  
+  <Card title="Agent Workflow" icon="diagram-project" href="/concepts/agent-workflow">
+    Learn how the autonomous agent operates.
+  </Card>
+</CardGroup>

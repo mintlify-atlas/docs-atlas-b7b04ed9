@@ -1,97 +1,90 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Sentinel AI"
+description: "Autonomous DevOps agent that monitors, diagnoses, and repairs Linux server issues in real-time using AI and RAG-powered decision making"
 ---
 
-## Setting up
+# Welcome to Sentinel AI
 
-Get your documentation site up and running in minutes.
+Sentinel AI is an autonomous DevOps agent designed to monitor, diagnose, and repair problems in Linux servers in real-time. Using Generative AI (LLMs) powered by a RAG (Retrieval-Augmented Generation) system, it makes informed decisions based on official technical documentation.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
+<CardGroup cols={2}>
   <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
+    title="Quickstart"
+    icon="rocket"
+    href="/quickstart"
   >
-    Edit your docs locally and preview them in real time.
+    Get Sentinel AI running in minutes
   </Card>
   <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
+    title="Agent Workflow"
+    icon="diagram-project"
+    href="/concepts/agent-workflow"
   >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+    Understand how the autonomous agent works
   </Card>
   <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
-
-## Create beautiful pages
-
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
+    title="API Reference"
     icon="code"
-    href="/essentials/code"
+    href="/api/overview"
   >
-    Add sample code to demonstrate how to use your product.
+    Explore the complete API documentation
   </Card>
   <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
+    title="Dashboard"
+    icon="chart-line"
+    href="/dashboard/overview"
   >
-    Display images and other media.
+    Real-time monitoring and control interface
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Autonomous Monitoring" icon="eye">
+    Continuously monitors Linux services including Nginx, PostgreSQL, Docker, and SSH
+  </Card>
+  <Card title="RAG-Powered Diagnosis" icon="brain">
+    Uses Pinecone, LlamaIndex, and Cohere Rerank to query official technical documentation
+  </Card>
+  <Card title="LangGraph Workflow" icon="sitemap">
+    Intelligent agent workflow with human-in-the-loop approval for critical actions
+  </Card>
+  <Card title="Real-Time Dashboard" icon="desktop">
+    Modern Next.js interface with live terminal and WebSocket updates
+  </Card>
+  <Card title="Secure Execution" icon="shield">
+    SSH-based command execution with safety controls and approval workflows
+  </Card>
+  <Card title="Interactive Chat" icon="messages">
+    Query technical documentation through an AI-powered chat interface
+  </Card>
+</CardGroup>
+
+## How It Works
+
+The agent operates through an intelligent decision graph:
+
+1. **Monitor** — Detects failed services or anomalies
+2. **Diagnose** — Analyzes logs and errors using RAG to find root causes
+3. **Plan** — Generates step-by-step repair plans
+4. **Approve** — Requests human approval for critical commands
+5. **Execute** — Executes commands via SSH securely
+6. **Verify** — Confirms the issue is resolved
+
+<CardGroup cols={2}>
+  <Card
+    title="Get Started"
+    icon="play"
+    href="/quickstart"
+  >
+    Follow the quickstart guide to set up Sentinel AI
   </Card>
   <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
+    title="Configuration"
+    icon="gear"
+    href="/configuration/environment"
   >
-    Write once and reuse across your docs.
+    Configure API keys, SSH, and services
   </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+</CardGroup>

@@ -1,0 +1,483 @@
+---
+title: "Deployment"
+description: "Deploy Sentinel AI to production environments"
+---
+
+# Deployment
+
+This guide covers deploying Sentinel AI to production environments using Docker, cloud platforms, and containerized infrastructure.
+
+## Docker Deployment
+
+Sentinel AI includes a Docker Compose configuration for easy deployment.
+
+### Docker Compose Setup
+
+From `infra/docker-compose.yml`:
+
+```yaml infra/docker-compose.yml
+services:
+  victim:
+    build:
+      context: .
+      dockerfile: Dockerfile.victim
+    container_name: sentinel-victim
+    ports:
+      - "2222:22"   # SSH Access
+      - "8080:80"   # HTTP Access (Nginx)
+    volumes:
+      - ./logs:/var/log/nginx
+    environment:
+      - SSH_USER=sentinel
+      - SSH_PASS=securepassword123
+    restart: always
+
+  db:
+      image: postgres:15
+      container_name: sentinel-db
+      environment:
+        POSTGRES_USER: sentinel
+        POSTGRES_PASSWORD: sentinel_password
+        POSTGRES_DB: sentinel_logs
+      ports:
+        - "5432:5432"
+      volumes:
+        - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+```
+
+### Running with Docker Compose
+
+<Steps>
+  <Step title="Create Docker Compose file">
+    Create a `docker-compose.yml` for the full stack:
+    
+    ```yaml docker-compose.yml
+    version: '3.8'
+    
+    services:
+      backend:
+        build:
+          context: .
+          dockerfile: Dockerfile
+        container_name: sentinel-backend
+        ports:
+          - "8000:8000"
+        environment:
+          - OPENAI_API_KEY=${OPENAI_API_KEY}
+          - PINECONE_API_KEY=${PINECONE_API_KEY}
+          - COHERE_API_KEY=${COHERE_API_KEY}
+          - LLAMA_CLOUD_API_KEY=${LLAMA_CLOUD_API_KEY}
+          - SSH_HOST=${SSH_HOST}
+          - SSH_PORT=${SSH_PORT}
+          - SSH_USER=${SSH_USER}
+          - SSH_PASS=${SSH_PASS}
+        volumes:
+          - ./data:/app/data
+        restart: unless-stopped
+      
+      frontend:
+        build:
+          context: ./frontend
+          dockerfile: Dockerfile
+        container_name: sentinel-frontend
+        ports:
+          - "3000:3000"
+        environment:
+          - NEXT_PUBLIC_API_URL=http://backend:8000
+        depends_on:
+          - backend
+        restart: unless-stopped
+    ```
+  </Step>
+  
+  <Step title="Create backend Dockerfile">
+    ```dockerfile Dockerfile
+    FROM python:3.10-slim
+    
+    WORKDIR /app
+    
+    # Install system dependencies
+    RUN apt-get update && apt-get install -y \
+        gcc \
+        && rm -rf /var/lib/apt/lists/*
+    
+    # Copy requirements and install
+    COPY requirements.txt .
+    RUN pip install --no-cache-dir -r requirements.txt
+    
+    # Copy application code
+    COPY . .
+    
+    # Create data directories
+    RUN mkdir -p data/manuals data/memory
+    
+    # Expose port
+    EXPOSE 8000
+    
+    # Run the server
+    CMD ["python", "run_server.py"]
+    ```
+  </Step>
+  
+  <Step title="Create frontend Dockerfile">
+    ```dockerfile frontend/Dockerfile
+    FROM node:18-alpine
+    
+    WORKDIR /app
+    
+    # Copy package files
+    COPY package*.json ./
+    
+    # Install dependencies
+    RUN npm ci --only=production
+    
+    # Copy application code
+    COPY . .
+    
+    # Build the application
+    RUN npm run build
+    
+    # Expose port
+    EXPOSE 3000
+    
+    # Start the application
+    CMD ["npm", "start"]
+    ```
+  </Step>
+  
+  <Step title="Create environment file">
+    ```bash .env
+    OPENAI_API_KEY=sk-...
+    PINECONE_API_KEY=...
+    COHERE_API_KEY=...
+    LLAMA_CLOUD_API_KEY=llx-...
+    SSH_HOST=your-server.com
+    SSH_PORT=22
+    SSH_USER=sentinel
+    SSH_PASS=your-secure-password
+    ```
+  </Step>
+  
+  <Step title="Start the stack">
+    ```bash
+    docker-compose up -d
+    ```
+  </Step>
+</Steps>
+
+## Cloud Platform Deployment
+
+### Render
+
+Deploy the backend to Render:
+
+<Steps>
+  <Step title="Create render.yaml">
+    ```yaml render.yaml
+    services:
+      - type: web
+        name: sentinel-ai-backend
+        env: python
+        buildCommand: pip install -r requirements.txt
+        startCommand: python run_server.py
+        envVars:
+          - key: OPENAI_API_KEY
+            sync: false
+          - key: PINECONE_API_KEY
+            sync: false
+          - key: COHERE_API_KEY
+            sync: false
+          - key: LLAMA_CLOUD_API_KEY
+            sync: false
+          - key: SSH_HOST
+            sync: false
+          - key: SSH_PORT
+            value: 22
+          - key: SSH_USER
+            sync: false
+          - key: SSH_PASS
+            sync: false
+          - key: PORT
+            value: 8000
+    ```
+  </Step>
+  
+  <Step title="Deploy to Render">
+    1. Push your code to GitHub
+    2. Connect your repository to Render
+    3. Configure environment variables
+    4. Deploy
+  </Step>
+</Steps>
+
+### Vercel (Frontend)
+
+Deploy the Next.js frontend to Vercel:
+
+<Steps>
+  <Step title="Install Vercel CLI">
+    ```bash
+    npm install -g vercel
+    ```
+  </Step>
+  
+  <Step title="Deploy">
+    ```bash
+    cd frontend
+    vercel
+    ```
+  </Step>
+  
+  <Step title="Configure environment">
+    Set `NEXT_PUBLIC_API_URL` to your backend URL:
+    ```bash
+    vercel env add NEXT_PUBLIC_API_URL production
+    ```
+  </Step>
+</Steps>
+
+### AWS EC2
+
+Deploy to AWS EC2 instance:
+
+<Steps>
+  <Step title="Launch EC2 instance">
+    - Ubuntu 22.04 LTS
+    - t3.medium or larger (2 vCPU, 4GB RAM)
+    - Security group: Allow ports 22, 8000, 3000
+  </Step>
+  
+  <Step title="Install dependencies">
+    ```bash
+    sudo apt update
+    sudo apt install -y python3-pip nodejs npm docker.io docker-compose
+    ```
+  </Step>
+  
+  <Step title="Clone and configure">
+    ```bash
+    git clone https://github.com/YomelBarretoFlores/sentinel-ai.git
+    cd sentinel-ai
+    
+    # Create environment file
+    cp .env.example .env
+    nano .env  # Edit with your credentials
+    ```
+  </Step>
+  
+  <Step title="Start with Docker Compose">
+    ```bash
+    docker-compose up -d
+    ```
+  </Step>
+</Steps>
+
+## Environment Configuration
+
+Production environment variables:
+
+```bash .env.production
+# API Keys
+OPENAI_API_KEY=sk-...
+PINECONE_API_KEY=...
+COHERE_API_KEY=...
+LLAMA_CLOUD_API_KEY=llx-...
+
+# SSH Configuration
+SSH_HOST=production-server.com
+SSH_PORT=22
+SSH_USER=sentinel
+SSH_PASS=secure-password
+
+# Server Configuration
+PORT=8000
+MONITOR_INTERVAL=30
+MAX_RETRIES=5
+
+# Next.js Frontend
+NEXT_PUBLIC_API_URL=https://api.your-domain.com
+```
+
+## Security Considerations
+
+<CardGroup cols={2}>
+  <Card title="API Keys" icon="key">
+    Use environment variables or secrets management (AWS Secrets Manager, HashiCorp Vault)
+  </Card>
+  <Card title="SSH Keys" icon="lock">
+    Prefer SSH key authentication over passwords in production
+  </Card>
+  <Card title="HTTPS" icon="shield">
+    Use HTTPS for all API communication (Nginx reverse proxy, Cloudflare)
+  </Card>
+  <Card title="Firewall" icon="fire">
+    Restrict SSH access to known IP ranges
+  </Card>
+</CardGroup>
+
+<Warning>
+  Never commit `.env` files to version control. Use `.env.example` as a template.
+</Warning>
+
+## Monitoring and Logging
+
+### Application Logs
+
+Sentinel AI logs to stdout. Capture with Docker:
+
+```bash
+docker logs -f sentinel-backend
+```
+
+### Health Checks
+
+Monitor the health endpoint:
+
+```bash
+curl http://localhost:8000/
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "service": "Sentinel AI API",
+  "mode": "on-demand",
+  "agent_status": "idle"
+}
+```
+
+### Log Aggregation
+
+Use tools like:
+- **Datadog** — Full observability platform
+- **Grafana Loki** — Log aggregation
+- **ELK Stack** — Elasticsearch, Logstash, Kibana
+
+## Scaling
+
+### Horizontal Scaling
+
+Deploy multiple backend instances behind a load balancer:
+
+```yaml docker-compose.yml
+services:
+  backend:
+    # ... backend config
+    deploy:
+      replicas: 3
+    
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+```
+
+### Load Balancer Configuration
+
+```nginx nginx.conf
+upstream backend {
+    server backend:8000;
+}
+
+server {
+    listen 80;
+    
+    location / {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+```
+
+## Backup and Recovery
+
+### Backup Strategies
+
+<Steps>
+  <Step title="Memory Backup">
+    Regularly backup `data/memory/episodes.json`:
+    ```bash
+    tar -czf memory-backup-$(date +%Y%m%d).tar.gz data/memory/
+    ```
+  </Step>
+  
+  <Step title="Pinecone Backup">
+    Pinecone indexes are automatically replicated. Export via API if needed:
+    ```python
+    from pinecone import Pinecone
+    pc = Pinecone(api_key="...")
+    index = pc.Index("sentinel-ai-index")
+    # Fetch and store vectors
+    ```
+  </Step>
+  
+  <Step title="Configuration Backup">
+    Backup services configuration:
+    ```bash
+    cp data/services.json services-backup-$(date +%Y%m%d).json
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<Accordion title="Backend won't start">
+  Check logs:
+  ```bash
+  docker logs sentinel-backend
+  ```
+  
+  Common issues:
+  - Missing environment variables
+  - Invalid API keys
+  - Port already in use
+</Accordion>
+
+<Accordion title="SSH connection fails">
+  Verify SSH credentials:
+  ```bash
+  ssh sentinel@your-server
+  ```
+  
+  Check firewall rules and SSH service status.
+</Accordion>
+
+<Accordion title="High memory usage">
+  Pinecone and LlamaIndex can be memory-intensive. Increase container memory:
+  ```yaml
+  services:
+    backend:
+      deploy:
+        resources:
+          limits:
+            memory: 4G
+  ```
+</Accordion>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Local installation guide
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/environment">
+    Environment configuration
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    API endpoints
+  </Card>
+  <Card title="Security" icon="shield" href="/concepts/security">
+    Security best practices
+  </Card>
+</CardGroup>

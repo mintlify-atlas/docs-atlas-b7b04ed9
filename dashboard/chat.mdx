@@ -1,0 +1,409 @@
+---
+title: Chat Interface
+description: Interactive RAG-powered chat for querying infrastructure knowledge
+icon: "message"
+---
+
+The Chat Panel provides an interactive interface to query your infrastructure using natural language. Powered by a RAG (Retrieval-Augmented Generation) knowledge base, it allows you to ask questions about commands, logs, configurations, and historical incidents.
+
+## Overview
+
+The chat interface combines:
+
+- **LLM-powered responses** using OpenAI or compatible models
+- **RAG knowledge base** with embeddings of logs, commands, and documentation
+- **Streaming responses** for real-time feedback
+- **Thinking process visualization** showing the agent's reasoning steps
+
+<CardGroup cols={2}>
+  <Card title="Natural Language Queries" icon="comment">
+    Ask questions in plain English or Spanish
+  </Card>
+  <Card title="Context-Aware Responses" icon="brain">
+    Uses RAG to retrieve relevant historical data
+  </Card>
+  <Card title="Streaming Responses" icon="wave-pulse">
+    See responses appear in real-time with SSE
+  </Card>
+  <Card title="Thinking Steps" icon="list-check">
+    Expandable view of the agent's reasoning process
+  </Card>
+</CardGroup>
+
+## Chat Panel Component
+
+The ChatPanel component manages conversation state and streaming:
+
+```tsx
+// components/dashboard/ChatPanel.tsx
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+  thinking?: string[]; // Log of thinking steps
+}
+
+export function ChatPanel() {
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([
+    { 
+      role: 'assistant', 
+      content: 'Hola, soy Sentinel AI. ¿En qué puedo ayudarte hoy?' 
+    }
+  ]);
+
+  const handleSend = async () => {
+    const userMsg = input;
+    setInput('');
+
+    // Add user message and placeholder for assistant
+    setMessages(prev => [
+      ...prev,
+      { role: 'user', content: userMsg },
+      { role: 'assistant', content: '', thinking: [] }
+    ]);
+    setLoading(true);
+
+    try {
+      await api.chatStream(userMsg, (event) => {
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastMsg = { ...newMessages[newMessages.length - 1] };
+
+          if (event.event === 'thinking') {
+            // Add thinking step
+            const step = event.data as string;
+            lastMsg.thinking = [...(lastMsg.thinking || []), step];
+          } else if (event.event === 'message') {
+            // Append message chunk
+            lastMsg.content += event.data as string;
+          }
+
+          newMessages[newMessages.length - 1] = lastMsg;
+          return newMessages;
+        });
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card className="flex flex-col h-[600px]">
+      <CardHeader>
+        <CardTitle>RAG Knowledge Base</CardTitle>
+      </CardHeader>
+
+      <CardContent className="flex-1 flex flex-col overflow-hidden">
+        <ScrollArea className="flex-1">
+          {messages.map((m, i) => (
+            <MessageBubble key={i} message={m} />
+          ))}
+        </ScrollArea>
+
+        <form onSubmit={handleSend} className="flex gap-2">
+          <Input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask about infrastructure, commands, or logs..."
+            disabled={loading}
+          />
+          <Button type="submit" disabled={loading}>
+            <Send className="w-4 h-4" />
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Server-Sent Events (SSE)
+
+The chat uses SSE for streaming responses from the backend:
+
+```typescript
+// lib/api.ts
+export const api = {
+  chatStream: async (query: string, onEvent: (event: ChatEvent) => void) => {
+    const response = await fetch(`${API_URL}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+
+      for (const block of parts) {
+        if (!block.trim()) continue;
+        const lines = block.split('\n');
+        let eventType = '';
+        let data = '';
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) eventType = line.substring(7);
+          if (line.startsWith('data: ')) data = line.substring(6);
+        }
+
+        if (eventType && data) {
+          onEvent({ event: eventType, data: JSON.parse(data) });
+        }
+      }
+    }
+  }
+};
+```
+
+<Note>
+SSE allows the server to push multiple events over a single HTTP connection, reducing latency compared to polling.
+</Note>
+
+## Backend Chat Endpoint
+
+The FastAPI backend streams responses using the RAG knowledge base:
+
+```python
+# src/api/routes.py
+@router.post("/chat")
+def chat(request: ChatRequest):
+    if not knowledge.kb:
+        raise HTTPException(
+            status_code=503, 
+            detail="Knowledge base is initializing. Try again in a few seconds."
+        )
+    
+    def event_stream():
+        try:
+            for event in knowledge.kb.stream_query(request.query):
+                yield f"event: {event['event']}\ndata: {json.dumps(event['data'])}\n\n"
+        except Exception as e:
+            error_data = json.dumps({"error": str(e)})
+            yield f"event: error\ndata: {error_data}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+```
+
+## Event Types
+
+The chat endpoint emits three types of events:
+
+<CardGroup cols={3}>
+  <Card title="thinking" icon="brain">
+    Reasoning steps showing how the agent processes the query
+  </Card>
+  <Card title="message" icon="message">
+    Content chunks that form the final response
+  </Card>
+  <Card title="error" icon="triangle-exclamation">
+    Error messages if the query fails
+  </Card>
+</CardGroup>
+
+### Event Format
+
+Each SSE event follows this structure:
+
+```
+event: thinking
+data: {"step": "Searching knowledge base for 'nginx errors'"}
+
+event: message
+data: {"chunk": "Based on recent logs, nginx failed due to "}
+
+event: message
+data: {"chunk": "port 80 being already in use."}
+
+event: done
+data: {}
+```
+
+## Thinking Process Visualization
+
+The thinking steps are displayed in a collapsible panel:
+
+```tsx
+// components/dashboard/ChatPanel.tsx
+function ThinkingProcess({ steps, finished }: { 
+  steps: string[], 
+  finished: boolean 
+}) {
+  const [isOpen, setIsOpen] = useState(!finished);
+
+  useEffect(() => {
+    // Auto-expand while thinking, collapse when done
+    const timer = setTimeout(() => {
+      setIsOpen(!finished);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [finished]);
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger>
+        {isOpen ? <ChevronDown /> : <ChevronRight />}
+        <Brain className="h-3 w-3 text-purple-400" />
+        {finished ? "Processed successfully" : "Reasoning..."}
+      </CollapsibleTrigger>
+      
+      <CollapsibleContent>
+        {steps.map((step, idx) => (
+          <div key={idx} className="text-[10px] text-muted-foreground">
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-500/50" />
+            {step}
+          </div>
+        ))}
+        {!finished && (
+          <div className="animate-pulse">
+            <Loader2 className="animate-spin" />
+            Thinking...
+          </div>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+```
+
+<Tip>
+The thinking process automatically collapses when the response is complete, reducing visual clutter.
+</Tip>
+
+## Markdown Rendering
+
+Responses are rendered using ReactMarkdown with GitHub Flavored Markdown:
+
+```tsx
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+<ReactMarkdown
+  remarkPlugins={[remarkGfm]}
+  components={{
+    code: ({ inline, children, ...props }) => {
+      return inline ? (
+        <code className="bg-muted px-1 rounded font-mono">
+          {children}
+        </code>
+      ) : (
+        <code className="block bg-black/50 p-3 rounded-lg font-mono">
+          {children}
+        </code>
+      );
+    },
+    table: (props) => (
+      <div className="overflow-auto rounded border">
+        <table className="w-full text-xs" {...props} />
+      </div>
+    )
+  }}
+>
+  {message.content}
+</ReactMarkdown>
+```
+
+## Example Queries
+
+Here are some example questions you can ask:
+
+<CardGroup cols={2}>
+  <Card title="Service Status" icon="server">
+    "Why did nginx fail last night?"
+  </Card>
+  <Card title="Command History" icon="terminal">
+    "Show me the last commands executed for postgresql"
+  </Card>
+  <Card title="Configuration" icon="gear">
+    "What services are currently monitored?"
+  </Card>
+  <Card title="Troubleshooting" icon="wrench">
+    "How do I fix a database connection error?"
+  </Card>
+</CardGroup>
+
+## RAG Knowledge Base
+
+The chat is powered by a vector database that stores:
+
+- **Agent memory** - Past diagnoses, commands, and results
+- **Configuration** - Service definitions and monitoring rules
+- **Documentation** - Command references and troubleshooting guides
+- **Logs** - Historical log entries with embeddings
+
+<Note>
+The knowledge base is initialized asynchronously when the server starts. If you see a 503 error, wait a few seconds for initialization to complete.
+</Note>
+
+## Auto-scrolling
+
+The chat automatically scrolls to the latest message:
+
+```tsx
+const scrollEndRef = useRef<HTMLDivElement>(null);
+
+useEffect(() => {
+  scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
+}, [messages]);
+
+return (
+  <ScrollArea>
+    {messages.map(m => <MessageBubble message={m} />)}
+    <div ref={scrollEndRef} />
+  </ScrollArea>
+);
+```
+
+## Error Handling
+
+Errors are displayed inline in the chat:
+
+```tsx
+if (event.event === 'error') {
+  const errData = event.data as { error: string };
+  lastMsg.content += `\n\n**Error:** ${errData.error}`;
+}
+```
+
+<Warning>
+If the chat consistently returns errors, verify that:
+- The backend server is running
+- The OpenAI API key is configured
+- The knowledge base has been initialized
+</Warning>
+
+## Message Styling
+
+User and assistant messages use different styles:
+
+```tsx
+<div className={`rounded-lg px-4 py-3 ${
+  message.role === 'user'
+    ? 'bg-primary text-primary-foreground'
+    : 'bg-muted border text-foreground'
+}`}>
+  {message.content}
+</div>
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Knowledge Base" icon="database" href="/core-concepts/knowledge-base">
+    Learn how the RAG system works
+  </Card>
+  <Card title="Memory System" icon="brain" href="/core-concepts/memory">
+    Understand how agent memory is stored
+  </Card>
+  <Card title="LLM Configuration" icon="robot" href="/core-concepts/llm-config">
+    Configure the language model
+  </Card>
+</CardGroup>

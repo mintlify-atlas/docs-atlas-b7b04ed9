@@ -1,80 +1,282 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get Sentinel AI up and running in minutes with this quickstart guide.
 ---
 
-## Get started in three steps
+# Quickstart Guide
 
-Get your documentation site running locally and make your first customization.
+This guide will help you get Sentinel AI running quickly. For detailed installation instructions, see the [Installation](/installation) page.
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+Before you begin, ensure you have:
 
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+- **Python 3.10+** installed
+- **Node.js 18+** and npm installed
+- API keys for:
+  - **OpenAI** (for GPT-4 models)
+  - **Pinecone** (for vector storage)
+  - **Cohere** (for reranking)
+  - **LlamaCloud** (optional, for document parsing)
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  You'll need access to a Linux server via SSH. For testing, you can use localhost with SSH enabled.
 </Note>
+
+## Installation
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/yourusername/sentinel-ai.git
+    cd sentinel-ai
+    ```
+  </Step>
+
+  <Step title="Set Up Backend">
+    Create a virtual environment and install dependencies:
+    
+    <CodeGroup>
+    ```bash Linux/macOS
+    python -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    ```
+
+    ```bash Windows
+    python -m venv venv
+    venv\Scripts\activate
+    pip install -r requirements.txt
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Create a `.env` file in the project root with your API keys:
+
+    ```bash .env
+    # AI Services
+    OPENAI_API_KEY=sk-your-openai-key-here
+    PINECONE_API_KEY=your-pinecone-key-here
+    COHERE_API_KEY=your-cohere-key-here
+    LLAMA_CLOUD_API_KEY=your-llamacloud-key-here
+
+    # SSH Configuration
+    SSH_HOST=localhost
+    SSH_PORT=22
+    SSH_USER=your-username
+    SSH_PASS=your-password-or-leave-empty-for-key-auth
+
+    # Server Configuration
+    PORT=8000
+    ```
+
+    <Warning>
+      Never commit the `.env` file to version control. Add it to `.gitignore`.
+    </Warning>
+  </Step>
+
+  <Step title="Set Up Frontend">
+    Install frontend dependencies:
+
+    <CodeGroup>
+    ```bash npm
+    cd frontend
+    npm install
+    ```
+
+    ```bash yarn
+    cd frontend
+    yarn install
+    ```
+
+    ```bash pnpm
+    cd frontend
+    pnpm install
+    ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## Running Sentinel AI
+
+<Steps>
+  <Step title="Start the Backend Server">
+    From the project root directory:
+
+    ```bash
+    python run_server.py
+    ```
+
+    The API server will start on `http://localhost:8000`. You should see:
+
+    ```
+    INFO:     Started server process
+    INFO:     Waiting for application startup.
+    INFO:     Application startup complete.
+    INFO:     Uvicorn running on http://0.0.0.0:8000
+    ```
+
+    <Info>
+      The knowledge base will initialize in the background on first startup. This may take a few moments.
+    </Info>
+  </Step>
+
+  <Step title="Start the Frontend Dashboard">
+    In a new terminal, navigate to the frontend directory:
+
+    <CodeGroup>
+    ```bash npm
+    cd frontend
+    npm run dev
+    ```
+
+    ```bash yarn
+    cd frontend
+    yarn dev
+    ```
+
+    ```bash pnpm
+    cd frontend
+    pnpm dev
+    ```
+    </CodeGroup>
+
+    Open your browser to `http://localhost:3000` to access the dashboard.
+  </Step>
+
+  <Step title="Run Your First Analysis">
+    In the Sentinel AI dashboard:
+
+    1. Click the **"Start Agent"** button
+    2. The agent will begin monitoring configured services
+    3. Watch the live terminal for agent activity
+    4. If issues are found, you'll see the diagnosis and remediation plan
+    5. Approve or reject critical actions as needed
+  </Step>
+</Steps>
+
+## Testing the Agent
+
+To test Sentinel AI's capabilities, you can simulate a service failure:
+
+<CodeGroup>
+```bash Stop a Service
+# Stop nginx to trigger detection
+sudo systemctl stop nginx
+
+# The agent will detect this and propose a fix
+```
+
+```bash Check Status
+# Verify the agent detects the issue
+curl http://localhost:8000/status
+```
+</CodeGroup>
+
+<Info>
+  The agent checks services every 30 seconds by default. You can adjust this in `src/core/config.py` by changing `MONITOR_INTERVAL`.
+</Info>
+
+## API Endpoints
+
+Sentinel AI exposes the following key endpoints:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | API health check and status |
+| `/status` | GET | Current status of all monitored services |
+| `/agent/run` | POST | Start the agent analysis cycle |
+| `/agent/stop` | POST | Stop the running agent |
+| `/agent/approve` | POST | Approve or reject pending actions |
+| `/agent/state` | GET | Get current agent state |
+| `/services` | GET/POST/DELETE | Manage monitored services |
+| `/chat` | POST | Chat with the agent about infrastructure |
+| `/ws/logs` | WebSocket | Real-time agent logs stream |
+
+## Using the Chat Feature
+
+You can query the agent's knowledge base through the chat interface:
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "How do I configure Nginx reverse proxy?"}'
+```
+
+The agent will retrieve relevant information from indexed technical documentation and stream the response.
+
+## Managing Services
+
+By default, Sentinel AI monitors:
+
+- **nginx**: Web server
+- **postgresql**: Database server
+- **ssh**: System access
+
+### Add a Custom Service
+
+```bash
+curl -X POST http://localhost:8000/services \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "docker",
+    "check_command": "systemctl status docker",
+    "running_indicator": "active (running)",
+    "type": "container_runtime"
+  }'
+```
+
+### Remove a Service
+
+```bash
+curl -X DELETE http://localhost:8000/services/docker
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation Guide" icon="download" href="/installation">
+    Learn about detailed installation, configuration, and deployment options.
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/configuration/environment">
+    Customize monitoring intervals, retry limits, and service definitions.
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore all available API endpoints and WebSocket events.
+  </Card>
+  
+  <Card title="Agent Workflow" icon="diagram-project" href="/concepts/agent-workflow">
+    Deep dive into the agent's decision graph and RAG pipeline.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<Warning>
+  If the backend fails to start, ensure all environment variables are correctly set in `.env`.
+</Warning>
+
+### Common Issues
+
+**Knowledge base not initializing:**
+- Verify Pinecone API key is valid
+- Check that the index `sentinel-ai-index` exists in your Pinecone project
+- Wait 30-60 seconds for initial vector store connection
+
+**SSH connection fails:**
+- Verify SSH credentials in `.env`
+- Ensure the target server has SSH enabled
+- Test SSH connection manually: `ssh user@host -p port`
+
+**Frontend cannot connect to backend:**
+- Ensure backend is running on port 8000
+- Check CORS settings in `src/api/server.py`
+- Verify no firewall is blocking localhost connections
+
+**Agent not detecting service failures:**
+- Check service names match your system (e.g., `nginx` vs `nginx.service`)
+- Verify check commands work manually via SSH
+- Review agent logs in the dashboard terminal

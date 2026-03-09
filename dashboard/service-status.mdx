@@ -1,0 +1,406 @@
+---
+title: Service Status
+description: Real-time monitoring of infrastructure services
+icon: "activity"
+---
+
+The Service Status Grid provides an at-a-glance view of all monitored services. It displays health status, service types, and details for each configured service in your infrastructure.
+
+## Overview
+
+The status grid polls the backend API to check service health and displays the results in a responsive card layout. Each service card shows:
+
+- **Service name** - Configured service identifier
+- **Status badge** - Running, stopped, or error state
+- **Service type** - Database, web server, or custom service
+- **Details** - Additional status information
+
+<CardGroup cols={2}>
+  <Card title="Real-time Status" icon="bolt">
+    Updated via WebSocket events and periodic polling
+  </Card>
+  <Card title="Service Types" icon="layer-group">
+    Supports databases, web servers, and custom services
+  </Card>
+  <Card title="Responsive Grid" icon="grid">
+    Adapts from 1 to 4 columns based on screen size
+  </Card>
+  <Card title="Visual Indicators" icon="palette">
+    Color-coded status badges and service icons
+  </Card>
+</CardGroup>
+
+## StatusGrid Component
+
+The component receives service data and renders status cards:
+
+```tsx
+// components/dashboard/StatusGrid.tsx
+import { CheckCircle2, XCircle, Globe, Database, Terminal } from "lucide-react";
+
+interface StatusGridProps {
+  services: StatusResponse | null;
+}
+
+export function StatusGrid({ services }: StatusGridProps) {
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'running': 
+        return 'bg-green-500/10 text-green-500 border-green-500/20';
+      case 'stopped': 
+        return 'bg-red-500/10 text-red-500 border-red-500/20';
+      case 'error': 
+        return 'bg-red-500/10 text-red-500 border-red-500/20';
+      default: 
+        return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'running': return <CheckCircle2 className="w-4 h-4" />;
+      case 'stopped': return <XCircle className="w-4 h-4" />;
+      default: return <Clock className="w-4 h-4" />;
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {Object.entries(services).map(([name, service]) => (
+        <div key={name} className="p-5 rounded-xl border bg-card shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-sm capitalize">{name}</h3>
+            <ServiceTypeIcon type={service.type} />
+          </div>
+
+          <div className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 
+            rounded-full text-xs font-medium border ${getStatusColor(service.status)}`}>
+            {getStatusIcon(service.status)}
+            {service.status}
+          </div>
+
+          <p className="text-xs text-muted-foreground mt-3 truncate font-mono">
+            {service.details}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+## Data Flow
+
+The main dashboard page fetches and updates service status:
+
+```tsx
+// app/page.tsx
+export default function Home() {
+  const { logs, isConnected } = useLogs();
+  const [services, setServices] = useState<StatusResponse | null>(null);
+
+  // Initial fetch on mount
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const data = await api.getStatus();
+        setServices(data);
+      } catch (e) {
+        console.error("Failed to fetch status", e);
+      }
+    };
+    fetchStatus();
+  }, []);
+
+  // Update from WebSocket status_update events
+  useEffect(() => {
+    if (logs.length > 0) {
+      const lastLog = logs[logs.length - 1];
+      if (lastLog.type === "status_update" && lastLog.details) {
+        setServices(lastLog.details as StatusResponse);
+      }
+    }
+  }, [logs]);
+
+  return <StatusGrid services={services} />;
+}
+```
+
+<Note>
+The status grid updates in two ways:
+1. Initial HTTP request on page load
+2. Real-time updates via WebSocket `status_update` events
+</Note>
+
+## Backend Status Endpoint
+
+The `/status` endpoint executes SSH commands to check service health:
+
+```python
+# src/api/routes.py
+@router.get("/status")
+def get_status():
+    services_status = {}
+    
+    ssh = None
+    try:
+        ssh = SSHClient(
+            hostname=config.SSH_HOST,
+            port=config.SSH_PORT,
+            username=config.SSH_USER,
+            password=config.SSH_PASS
+        )
+    except Exception as e:
+        # Return error status for all services if SSH fails
+        for name, cfg in config.SERVICES.items():
+            services_status[name] = {
+                "status": "error",
+                "details": f"SSH unavailable: {str(e)}",
+                "type": cfg["type"]
+            }
+        return services_status
+    
+    try:
+        for name, cfg in config.SERVICES.items():
+            try:
+                code, out, err = ssh.execute_command(cfg["check_command"])
+                is_running = cfg["running_indicator"] in out
+                services_status[name] = {
+                    "status": "running" if is_running else "stopped",
+                    "details": out.strip() if not is_running else "Service is active",
+                    "type": cfg["type"]
+                }
+            except Exception as e:
+                services_status[name] = {
+                    "status": "error",
+                    "details": str(e),
+                    "type": cfg["type"]
+                }
+    finally:
+        if ssh:
+            ssh.close()
+        
+    return services_status
+```
+
+## Service Status Types
+
+<CardGroup cols={3}>
+  <Card title="Running" icon="circle-check">
+    Service is active and responding correctly
+  </Card>
+  <Card title="Stopped" icon="circle-stop">
+    Service is not running or not responding
+  </Card>
+  <Card title="Error" icon="triangle-exclamation">
+    Unable to check service status (SSH error, etc.)
+  </Card>
+</CardGroup>
+
+## Service Types and Icons
+
+Each service displays an icon based on its type:
+
+```tsx
+const ServiceTypeIcon = ({ type }: { type: string }) => {
+  switch (type) {
+    case 'database':
+      return <Database className="w-4 h-4 text-purple-500" />;
+    case 'web_server':
+      return <Globe className="w-4 h-4 text-blue-500" />;
+    default:
+      return <Terminal className="w-4 h-4 text-orange-500" />;
+  }
+};
+```
+
+### Supported Service Types
+
+| Type | Icon | Example Services |
+|------|------|------------------|
+| `database` | Database | PostgreSQL, MySQL, MongoDB |
+| `web_server` | Globe | Nginx, Apache, Caddy |
+| `custom` | Terminal | Custom scripts, cron jobs |
+
+## Status Response Schema
+
+The API returns this TypeScript interface:
+
+```typescript
+export interface ServiceStatus {
+  status: 'running' | 'stopped' | 'error';
+  details: string;
+  type: string;
+}
+
+export type StatusResponse = Record<string, ServiceStatus>;
+```
+
+Example response:
+
+```json
+{
+  "nginx": {
+    "status": "running",
+    "details": "Service is active",
+    "type": "web_server"
+  },
+  "postgresql": {
+    "status": "stopped",
+    "details": "inactive (dead)",
+    "type": "database"
+  },
+  "redis": {
+    "status": "error",
+    "details": "SSH unavailable: Connection refused",
+    "type": "database"
+  }
+}
+```
+
+## Responsive Grid Layout
+
+The grid adapts to different screen sizes:
+
+```tsx
+<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+  {/* Service cards */}
+</div>
+```
+
+| Screen Size | Columns | Class |
+|-------------|---------|-------|
+| Mobile (< 768px) | 1 | `grid-cols-1` |
+| Tablet (768px - 1024px) | 2 | `md:grid-cols-2` |
+| Desktop (> 1024px) | 4 | `lg:grid-cols-4` |
+
+## Loading State
+
+While fetching initial data, the grid shows skeleton cards:
+
+```tsx
+if (!services) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} className="h-32 rounded-xl bg-muted/50 border" />
+      ))}
+    </div>
+  );
+}
+```
+
+<Tip>
+The skeleton UI uses the same grid layout as the actual cards, preventing layout shift when data loads.
+</Tip>
+
+## Color Coding
+
+Status badges use semantic colors:
+
+```tsx
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'running':
+      return 'bg-green-500/10 text-green-500 border-green-500/20';
+    case 'stopped':
+      return 'bg-red-500/10 text-red-500 border-red-500/20';
+    case 'error':
+      return 'bg-red-500/10 text-red-500 border-red-500/20';
+    default:
+      return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
+  }
+};
+```
+
+<CardGroup cols={3}>
+  <Card title="Green" icon="circle">
+    Running - Service is healthy
+  </Card>
+  <Card title="Red" icon="circle">
+    Stopped/Error - Requires attention
+  </Card>
+  <Card title="Gray" icon="circle">
+    Unknown - Status cannot be determined
+  </Card>
+</CardGroup>
+
+## WebSocket Status Updates
+
+The dashboard updates automatically when the agent detects changes:
+
+```tsx
+useEffect(() => {
+  if (logs.length > 0) {
+    const lastLog = logs[logs.length - 1];
+    if (lastLog.type === "status_update" && lastLog.details) {
+      setTimeout(() => {
+        setServices(lastLog.details as StatusResponse);
+      }, 0);
+    }
+  }
+}, [logs]);
+```
+
+<Note>
+The `setTimeout` prevents synchronous state updates during the WebSocket event handler.
+</Note>
+
+## Configuring Services
+
+Services are defined in the backend configuration:
+
+```python
+# config.yaml or environment variables
+SERVICES:
+  nginx:
+    check_command: "systemctl status nginx"
+    running_indicator: "active (running)"
+    type: "web_server"
+  postgresql:
+    check_command: "systemctl status postgresql"
+    running_indicator: "active (running)"
+    type: "database"
+```
+
+See the [Configuration Guide](/core-concepts/configuration) for details on adding services.
+
+## Error Scenarios
+
+<Warning>
+**SSH Connection Failure**: If SSH is unavailable, all services show an error status with the message "SSH unavailable: [error details]".
+</Warning>
+
+<Warning>
+**Command Execution Failure**: If a check command fails, that specific service shows an error status with the exception message.
+</Warning>
+
+## System Metrics
+
+The dashboard also displays overall metrics:
+
+```tsx
+<div className="flex justify-between py-1">
+  <span>Monitored Services</span>
+  <span className="font-mono">
+    {services ? Object.keys(services).length : '-'}
+  </span>
+</div>
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Service Configuration" icon="gear" href="/core-concepts/configuration">
+    Learn how to add and configure services
+  </Card>
+  <Card title="SSH Setup" icon="key" href="/getting-started/ssh-setup">
+    Configure SSH access for remote monitoring
+  </Card>
+  <Card title="Monitor Node" icon="magnifying-glass" href="/agent-workflow/monitor">
+    Understand how the agent checks service status
+  </Card>
+  <Card title="WebSocket Events" icon="tower-broadcast" href="/architecture/event-bus">
+    Learn about real-time event distribution
+  </Card>
+</CardGroup>

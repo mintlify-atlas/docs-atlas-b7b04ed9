@@ -1,0 +1,152 @@
+---
+title: 'Monitoring'
+description: 'Continuous service health monitoring and failure detection'
+icon: 'activity'
+---
+
+The monitoring node is the entry point of Sentinel AI's autonomous operations cycle. It continuously checks the health of configured services via SSH and triggers the remediation workflow when failures are detected.
+
+## Overview
+
+The monitor node connects to remote servers via SSH and executes health check commands for each configured service. It maintains a real-time snapshot of service states and immediately detects failures.
+
+<Info>
+  The monitor node runs as the first step in the agent's workflow loop, implementing continuous monitoring until a failure is detected.
+</Info>
+
+## Core Functionality
+
+<Steps>
+  <Step title="SSH Connection Establishment">
+    Establishes an SSH connection using credentials from the configuration:
+    
+    ```python
+    ssh = SSHClient(
+        hostname=config.SSH_HOST,
+        port=config.SSH_PORT,
+        username=config.SSH_USER,
+        password=config.SSH_PASS
+    )
+    ```
+  </Step>
+
+  <Step title="Service Health Checks">
+    Iterates through all configured services and executes their health check commands:
+    
+    ```python
+    for service_name, service_cfg in config.SERVICES.items():
+        code, out, err = ssh.execute_command(service_cfg["check_command"])
+        is_running = service_cfg["running_indicator"] in out
+    ```
+  </Step>
+
+  <Step title="Status Snapshot Creation">
+    Builds a comprehensive snapshot of all service states:
+    
+    ```python
+    services_snapshot[service_name] = {
+        "status": status,
+        "details": details,
+        "type": service_cfg["type"]
+    }
+    ```
+  </Step>
+
+  <Step title="Failure Detection">
+    Detects the first failed service and prepares state for diagnosis:
+    
+    ```python
+    if not is_running and not any_failure:
+        any_failure = f"Servicio '{service_name}' no esta activo."
+        failed_service = service_name
+        log("monitor", f"{service_name} CAIDO: {out.strip()}")
+    ```
+  </Step>
+</Steps>
+
+## State Management
+
+The monitor node updates the agent state with critical information:
+
+<CardGroup cols={2}>
+  <Card title="Success State" icon="circle-check">
+    When all services are healthy:
+    
+    - `current_step`: "monitor"
+    - `current_error`: None
+    - `affected_service`: None
+  </Card>
+  
+  <Card title="Failure State" icon="circle-xmark">
+    When a service failure is detected:
+    
+    - `current_step`: "monitor"
+    - `current_error`: Error description
+    - `affected_service`: Failed service name
+  </Card>
+</CardGroup>
+
+## Service Configuration
+
+Each monitored service requires configuration with these properties:
+
+```python
+SERVICES = {
+    "service_name": {
+        "check_command": "systemctl status service_name",
+        "running_indicator": "active (running)",
+        "type": "systemd"
+    }
+}
+```
+
+<Note>
+  The `running_indicator` string is used to determine if the service is active by checking if it appears in the command output.
+</Note>
+
+## Error Handling
+
+The monitor node implements robust error handling for SSH connection failures:
+
+```python
+except Exception as e:
+    error_msg = f"Fallo en la conexion SSH: {str(e)}"
+    log("error", error_msg)
+    
+    error_snapshot = {
+        name: {"status": "error", "details": "SSH Connect Fail", "type": cfg["type"]}
+        for name, cfg in config.SERVICES.items()
+    }
+    
+    return {
+        "current_step": "monitor",
+        "current_error": error_msg,
+        "affected_service": "ssh"
+    }
+```
+
+<Warning>
+  SSH connection failures set the `affected_service` to "ssh", which requires special handling in subsequent remediation steps.
+</Warning>
+
+## Event Logging
+
+The monitor node emits structured events for observability:
+
+<CardGroup cols={2}>
+  <Card title="status_update" icon="sync">
+    Emitted with complete service snapshot for UI updates
+  </Card>
+  
+  <Card title="monitor" icon="eye">
+    Logs operational status messages and failure detection
+  </Card>
+</CardGroup>
+
+## Implementation Location
+
+Source: `src/agent/nodes/monitor.py:18`
+
+## Next Steps
+
+When a failure is detected, the workflow transitions to the [diagnosis phase](/operations/diagnosis) where the error is analyzed using AI and historical data.

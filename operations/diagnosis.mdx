@@ -1,0 +1,193 @@
+---
+title: 'Diagnosis'
+description: 'AI-powered error analysis with memory and knowledge base integration'
+icon: 'magnifying-glass'
+---
+
+The diagnosis node analyzes detected failures using a combination of LLM reasoning, historical memory, and RAG-based knowledge retrieval to determine root causes and recommend solutions.
+
+## Overview
+
+When a service failure is detected, the diagnosis node leverages multiple intelligence sources to understand the problem:
+
+- **LLM Analysis**: OpenAI GPT models for reasoning
+- **Memory System**: Historical successes and failures
+- **Knowledge Base**: RAG-based documentation retrieval
+- **Context**: Prior diagnosis attempts and retry counts
+
+<Info>
+  The diagnosis node is designed to learn from past incidents, avoiding previously failed solutions and prioritizing known working fixes.
+</Info>
+
+## Architecture
+
+```python
+llm = ChatOpenAI(model=config.MODEL_NAME, temperature=config.TEMPERATURE)
+```
+
+The node uses LangChain's ChatOpenAI integration for structured LLM interactions.
+
+## Diagnosis Workflow
+
+<Steps>
+  <Step title="Context Gathering">
+    Extracts error information from the agent state:
+    
+    ```python
+    error = state.get("current_error", "")
+    service = state.get("affected_service", "desconocido")
+    prior_logs = state.get("diagnosis_log", [])
+    retry_count = state.get("retry_count", 0)
+    ```
+  </Step>
+
+  <Step title="Memory Consultation">
+    Queries the memory system for relevant historical data:
+    
+    ```python
+    failed_commands = memory.get_failed_commands(error)
+    if failed_commands:
+        memory_consulted = True
+        memory_context += "COMANDOS QUE YA FALLARON (NO repetir):\n"
+        for cmd in failed_commands:
+            memory_context += f"- {cmd}\n"
+    ```
+    
+    Also searches for similar successful resolutions:
+    
+    ```python
+    similar = memory.find_similar(error)
+    if similar and similar["success"]:
+        memory_context += f"\nSolucion exitosa previa: {similar['command']}\n"
+    ```
+  </Step>
+
+  <Step title="Knowledge Base Query">
+    Retrieves relevant documentation using RAG:
+    
+    ```python
+    if kb:
+        log("diagnose", "Consultando base de conocimiento (RAG)...")
+        rag_context = kb.query(f"How to fix: {error}")
+    ```
+  </Step>
+
+  <Step title="LLM Analysis">
+    Constructs a comprehensive prompt and requests diagnosis:
+    
+    ```python
+    messages = [
+        SystemMessage(content=(
+            "Eres Sentinel AI, un agente DevOps autonomo.\n"
+            "Analiza el error y proporciona un diagnostico BREVE (maximo 3 lineas).\n"
+            f"\nServicio afectado: {service}\n"
+            f"\n{memory_context}"
+            f"\nDocumentacion tecnica:\n{rag_context[:1000]}\n"
+        )),
+        HumanMessage(content=f"Error: {error}")
+    ]
+    
+    response = llm.invoke(messages)
+    diagnosis = response.content.strip()
+    ```
+  </Step>
+</Steps>
+
+## Memory Integration
+
+The diagnosis node heavily relies on the memory system to avoid repeating mistakes:
+
+<CardGroup cols={2}>
+  <Card title="Failed Commands" icon="ban">
+    Retrieves commands that previously failed for the same error and explicitly instructs the LLM not to repeat them.
+  </Card>
+  
+  <Card title="Successful Solutions" icon="lightbulb">
+    Finds similar past incidents that were successfully resolved and prioritizes those approaches.
+  </Card>
+</CardGroup>
+
+<Warning>
+  The system explicitly forbids the LLM from suggesting commands that have already failed, as defined in the prompt:
+  
+  "REGLAS CRITICAS: NO sugieras comandos que ya fallaron (listados arriba)."
+</Warning>
+
+## System Prompt Design
+
+The diagnosis prompt includes critical constraints:
+
+```python
+SystemMessage(content=(
+    "Eres Sentinel AI, un agente DevOps autonomo.\n"
+    "Analiza el error y proporciona un diagnostico BREVE (maximo 3 lineas).\n"
+    "Indica la causa probable y la solucion recomendada.\n"
+    f"\nHistorial de intentos:\n{chr(10).join(prior_logs[-3:]) if prior_logs else 'Primer intento.'}\n"
+    "\nREGLAS CRITICAS:"
+    "\n1. NO sugieras comandos que ya fallaron (listados arriba)."
+    "\n2. Si 'service' o 'apt-get' fallan, prueba alternativas como 'systemctl', 'dmesg', o verificar ficheros de log especificos."
+))
+```
+
+<Note>
+  The diagnosis is intentionally kept brief (maximum 3 lines) to focus on actionable insights rather than verbose explanations.
+</Note>
+
+## State Updates
+
+The diagnosis node returns updated state:
+
+```python
+return {
+    "current_step": "diagnose",
+    "diagnosis_log": prior_logs + [diagnosis],
+    "memory_consulted": memory_consulted
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="diagnosis_log" icon="list">
+    Appends the new diagnosis to the history
+  </Card>
+  
+  <Card title="current_step" icon="location-dot">
+    Marks the workflow position
+  </Card>
+  
+  <Card title="memory_consulted" icon="database">
+    Tracks whether historical data was available
+  </Card>
+</CardGroup>
+
+## Retry Context
+
+The diagnosis adapts based on retry attempts:
+
+```python
+f"\nHistorial de intentos:\n{chr(10).join(prior_logs[-3:]) if prior_logs else 'Primer intento.'}\n"
+```
+
+This provides the LLM with awareness of previous attempts, enabling progressive problem-solving strategies.
+
+## RAG Integration
+
+When available, the knowledge base provides technical documentation:
+
+```python
+if kb:
+    rag_context = kb.query(f"How to fix: {error}")
+else:
+    log("warning", "Base de conocimiento no disponible.")
+```
+
+<Tip>
+  The RAG context is truncated to 1000 characters to stay within LLM token limits while providing relevant documentation.
+</Tip>
+
+## Implementation Location
+
+Source: `src/agent/nodes/diagnose.py:14`
+
+## Next Steps
+
+After diagnosis, the workflow moves to [planning](/operations/planning) where the diagnosis is translated into executable remediation commands.

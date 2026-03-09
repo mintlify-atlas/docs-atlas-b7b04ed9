@@ -1,0 +1,455 @@
+---
+title: SSH Setup
+description: Configure SSH authentication and permissions for remote server access
+icon: 'terminal'
+---
+
+Sentinel AI uses SSH to connect to remote servers for executing commands, monitoring services, and performing automated remediation tasks.
+
+## Overview
+
+The SSH client is implemented in `src/tools/ssh.py` using the Paramiko library. It supports both password and key-based authentication.
+
+<Info>
+  **Default SSH Settings:**
+  - Host: `localhost`
+  - Port: `2222`
+  - User: `sentinel`
+  - Connection timeout: `10` seconds
+</Info>
+
+## Authentication Methods
+
+### Password Authentication
+
+The simplest method, suitable for development and testing environments.
+
+<CodeGroup>
+```bash .env
+SSH_HOST=192.168.1.100
+SSH_PORT=22
+SSH_USER=admin
+SSH_PASS=your_secure_password
+```
+
+```python src/tools/ssh.py
+class SSHClient:
+    def __init__(self, hostname: str, username: str, 
+                 password: Optional[str] = None, 
+                 key_filename: Optional[str] = None, 
+                 port: int = 22):
+        self.hostname = hostname
+        self.username = username
+        self.password = password
+        self.key_filename = key_filename
+        self.port = port
+```
+</CodeGroup>
+
+<Warning>
+  Password authentication is less secure than key-based authentication. For production environments, always use SSH keys.
+</Warning>
+
+### Key-Based Authentication (Recommended)
+
+More secure method using SSH key pairs.
+
+<Steps>
+  <Step title="Generate SSH key pair">
+    Generate a new SSH key pair for Sentinel AI:
+    
+    ```bash
+    ssh-keygen -t ed25519 -C "sentinel-ai" -f ~/.ssh/sentinel_key
+    ```
+    
+    This creates:
+    - Private key: `~/.ssh/sentinel_key`
+    - Public key: `~/.ssh/sentinel_key.pub`
+  </Step>
+  
+  <Step title="Copy public key to server">
+    Add the public key to the target server's authorized keys:
+    
+    ```bash
+    ssh-copy-id -i ~/.ssh/sentinel_key.pub user@server
+    ```
+    
+    Or manually:
+    
+    ```bash
+    cat ~/.ssh/sentinel_key.pub | ssh user@server "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+    ```
+  </Step>
+  
+  <Step title="Configure Sentinel AI">
+    Set the key file path in your configuration:
+    
+    ```bash .env
+    SSH_HOST=prod-server.example.com
+    SSH_PORT=22
+    SSH_USER=sentinel
+    # SSH_PASS is not needed with key-based auth
+    ```
+    
+    Modify the SSH client initialization to use the key file:
+    
+    ```python
+    from src.core.config import config
+    from src.tools.ssh import SSHClient
+    
+    client = SSHClient(
+        hostname=config.SSH_HOST,
+        username=config.SSH_USER,
+        key_filename="~/.ssh/sentinel_key",
+        port=config.SSH_PORT
+    )
+    ```
+  </Step>
+  
+  <Step title="Test connection">
+    Verify the SSH connection works:
+    
+    ```bash
+    ssh -i ~/.ssh/sentinel_key sentinel@prod-server.example.com
+    ```
+  </Step>
+</Steps>
+
+## SSH Client Implementation
+
+The `SSHClient` class handles connection management and command execution:
+
+<CodeGroup>
+```python Connection Management
+class SSHClient:
+    def connect(self):
+        try:
+            self.client = paramiko.SSHClient()
+            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            self.client.connect(
+                hostname=self.hostname,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                key_filename=self.key_filename,
+                timeout=10
+            )
+            print(f"[SSH] Conexion establecida con {self.username}@{self.hostname}:{self.port}")
+        except Exception as e:
+            print(f"[SSH] Error de conexion: {e}")
+            raise e
+```
+
+```python Command Execution
+def execute_command(self, command: str, use_sudo: bool = False) -> Tuple[int, str, str]:
+    if not self.client:
+        self.connect()
+
+    if use_sudo:
+        command = f"sudo -S {command}"
+        stdin, stdout, stderr = self.client.exec_command(command, get_pty=True)
+        time.sleep(0.3)
+        stdin.write(f"{self.password}\n")
+        stdin.flush()
+    else:
+        stdin, stdout, stderr = self.client.exec_command(command)
+
+    exit_code = stdout.channel.recv_exit_status()
+    out = stdout.read().decode().strip()
+    err = stderr.read().decode().strip()
+    
+    return exit_code, out, err
+```
+</CodeGroup>
+
+### Key Features
+
+<CardGroup cols={2}>
+  <Card title="Auto Host Key Policy" icon="key">
+    Automatically accepts unknown host keys using `AutoAddPolicy()`
+  </Card>
+  <Card title="Sudo Support" icon="shield">
+    Execute commands with sudo privileges using password injection
+  </Card>
+  <Card title="Connection Timeout" icon="clock">
+    10-second timeout prevents hanging on unreachable hosts
+  </Card>
+  <Card title="Stop Signal Handling" icon="stop">
+    Gracefully handles interruption signals during command execution
+  </Card>
+</CardGroup>
+
+## User Permissions
+
+The SSH user needs appropriate permissions to monitor and manage services.
+
+### Recommended Setup
+
+<Steps>
+  <Step title="Create dedicated user">
+    Create a dedicated user for Sentinel AI:
+    
+    ```bash
+    sudo adduser sentinel
+    sudo usermod -aG sudo sentinel
+    ```
+  </Step>
+  
+  <Step title="Configure sudoers">
+    Allow specific commands without password prompt:
+    
+    ```bash
+    sudo visudo
+    ```
+    
+    Add these lines:
+    
+    ```bash /etc/sudoers
+    # Sentinel AI permissions
+    sentinel ALL=(ALL) NOPASSWD: /usr/sbin/service
+    sentinel ALL=(ALL) NOPASSWD: /bin/systemctl
+    sentinel ALL=(ALL) NOPASSWD: /usr/bin/docker
+    sentinel ALL=(ALL) NOPASSWD: /usr/sbin/nginx
+    ```
+  </Step>
+  
+  <Step title="Test permissions">
+    Verify the user can execute service commands:
+    
+    ```bash
+    sudo -u sentinel service nginx status
+    sudo -u sentinel systemctl status postgresql
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  Grant only the minimum permissions required. Avoid giving full sudo access without password requirements.
+</Warning>
+
+### Service-Specific Permissions
+
+Depending on which services you're monitoring:
+
+<Accordion title="Nginx Permissions">
+  ```bash /etc/sudoers.d/sentinel-nginx
+  sentinel ALL=(ALL) NOPASSWD: /usr/sbin/service nginx status
+  sentinel ALL=(ALL) NOPASSWD: /usr/sbin/service nginx start
+  sentinel ALL=(ALL) NOPASSWD: /usr/sbin/service nginx stop
+  sentinel ALL=(ALL) NOPASSWD: /usr/sbin/service nginx restart
+  sentinel ALL=(ALL) NOPASSWD: /usr/sbin/nginx -t
+  ```
+</Accordion>
+
+<Accordion title="PostgreSQL Permissions">
+  ```bash /etc/sudoers.d/sentinel-postgresql
+  sentinel ALL=(ALL) NOPASSWD: /usr/sbin/service postgresql status
+  sentinel ALL=(ALL) NOPASSWD: /usr/sbin/service postgresql start
+  sentinel ALL=(ALL) NOPASSWD: /usr/sbin/service postgresql stop
+  sentinel ALL=(ALL) NOPASSWD: /usr/sbin/service postgresql restart
+  sentinel ALL=(ALL) NOPASSWD: /usr/bin/psql
+  ```
+</Accordion>
+
+<Accordion title="Docker Permissions">
+  ```bash
+  # Add sentinel to docker group
+  sudo usermod -aG docker sentinel
+  
+  # Or use sudoers
+  sentinel ALL=(ALL) NOPASSWD: /usr/bin/docker ps
+  sentinel ALL=(ALL) NOPASSWD: /usr/bin/docker restart
+  sentinel ALL=(ALL) NOPASSWD: /usr/bin/docker logs
+  ```
+</Accordion>
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use SSH Keys" icon="key">
+    Always use key-based authentication in production. Disable password authentication in SSH config.
+  </Card>
+  <Card title="Restrict SSH User" icon="lock">
+    Create a dedicated user with limited permissions. Never use root account.
+  </Card>
+  <Card title="Enable SSH Logging" icon="file-lines">
+    Monitor SSH access logs at `/var/log/auth.log` for unauthorized access attempts.
+  </Card>
+  <Card title="Use Firewall Rules" icon="firewall">
+    Restrict SSH access to specific IP addresses using iptables or cloud security groups.
+  </Card>
+  <Card title="Rotate Keys Regularly" icon="rotate">
+    Change SSH keys periodically, especially after team member departures.
+  </Card>
+  <Card title="Disable Root Login" icon="ban">
+    Set `PermitRootLogin no` in `/etc/ssh/sshd_config`.
+  </Card>
+</CardGroup>
+
+## Connection Testing
+
+Test your SSH configuration before running Sentinel AI:
+
+<CodeGroup>
+```python test_connection.py
+from src.tools.ssh import SSHClient
+from src.core.config import config
+
+def test_ssh_connection():
+    """Test SSH connection and basic commands."""
+    try:
+        # Initialize client
+        client = SSHClient(
+            hostname=config.SSH_HOST,
+            username=config.SSH_USER,
+            password=config.SSH_PASS,
+            port=config.SSH_PORT
+        )
+        
+        # Connect
+        client.connect()
+        print("✓ SSH connection established")
+        
+        # Test basic command
+        exit_code, output, error = client.execute_command("whoami")
+        print(f"✓ Basic command: {output}")
+        
+        # Test service status command
+        exit_code, output, error = client.execute_command("service nginx status")
+        print(f"✓ Service check: exit code {exit_code}")
+        
+        # Clean up
+        client.close()
+        print("✓ Connection closed successfully")
+        
+    except Exception as e:
+        print(f"✗ Connection failed: {e}")
+        return False
+    
+    return True
+
+if __name__ == "__main__":
+    test_ssh_connection()
+```
+
+```bash Terminal
+python test_connection.py
+```
+</CodeGroup>
+
+## Troubleshooting
+
+<Accordion title="Connection Timeout">
+  **Error:** `Connection timeout after 10 seconds`
+  
+  **Solutions:**
+  - Verify the SSH_HOST and SSH_PORT are correct
+  - Check firewall rules allow connections on the SSH port
+  - Ensure the target server's SSH service is running
+  - Test with direct SSH: `ssh -p 2222 user@host`
+</Accordion>
+
+<Accordion title="Authentication Failed">
+  **Error:** `Authentication failed`
+  
+  **Solutions:**
+  - Verify SSH_USER and SSH_PASS are correct
+  - For key-based auth, ensure the key file exists and has correct permissions (600)
+  - Check that the public key is in the server's `~/.ssh/authorized_keys`
+  - Verify the user account is not locked on the server
+</Accordion>
+
+<Accordion title="Permission Denied for Commands">
+  **Error:** `Permission denied` when executing service commands
+  
+  **Solutions:**
+  - Configure sudoers as described in User Permissions section
+  - Test with direct SSH: `ssh user@host 'sudo service nginx status'`
+  - Ensure the user is in the sudo group
+  - Check `/var/log/auth.log` for sudo errors
+</Accordion>
+
+<Accordion title="Host Key Verification Failed">
+  **Error:** `Host key verification failed`
+  
+  **Solutions:**
+  - The SSH client uses `AutoAddPolicy()` to accept new keys automatically
+  - If this still occurs, remove old key: `ssh-keygen -R hostname`
+  - Or manually accept: `ssh -o StrictHostKeyChecking=no user@host`
+</Accordion>
+
+## Advanced Configuration
+
+### Multiple Servers
+
+To manage multiple servers, extend the configuration:
+
+<CodeGroup>
+```python config/servers.py
+SERVERS = {
+    "production": {
+        "host": "prod.example.com",
+        "port": 22,
+        "user": "sentinel",
+        "key_file": "~/.ssh/sentinel_prod"
+    },
+    "staging": {
+        "host": "staging.example.com",
+        "port": 22,
+        "user": "sentinel",
+        "key_file": "~/.ssh/sentinel_staging"
+    }
+}
+
+def get_ssh_client(server_name: str) -> SSHClient:
+    """Get SSH client for a specific server."""
+    server = SERVERS[server_name]
+    return SSHClient(
+        hostname=server["host"],
+        username=server["user"],
+        key_filename=server["key_file"],
+        port=server["port"]
+    )
+```
+</CodeGroup>
+
+### SSH Bastion/Jump Host
+
+For servers behind a bastion host:
+
+```python
+import paramiko
+
+def connect_via_bastion(bastion_host, bastion_user, target_host, target_user):
+    """Connect to target server via bastion host."""
+    # Connect to bastion
+    bastion = paramiko.SSHClient()
+    bastion.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    bastion.connect(bastion_host, username=bastion_user)
+    
+    # Create transport to target through bastion
+    bastion_transport = bastion.get_transport()
+    dest_addr = (target_host, 22)
+    bastion_channel = bastion_transport.open_channel("direct-tcpip", dest_addr, ('', 0))
+    
+    # Connect to target
+    target = paramiko.SSHClient()
+    target.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    target.connect(target_host, username=target_user, sock=bastion_channel)
+    
+    return target
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="gear" href="/configuration/environment">
+    Configure all environment variables
+  </Card>
+  <Card title="Services Configuration" icon="server" href="/configuration/services">
+    Define services to monitor
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/deployment/docker">
+    Deploy Sentinel AI with Docker
+  </Card>
+</CardGroup>

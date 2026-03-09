@@ -1,0 +1,304 @@
+---
+title: 'Verification'
+description: 'Post-remediation health checks and retry logic'
+icon: 'check-double'
+---
+
+The verification node validates whether remediation was successful by re-checking the health of the affected service. It determines if the issue is resolved or if additional attempts are needed.
+
+## Overview
+
+After executing remediation commands, verification ensures the service has actually recovered. This closes the feedback loop and determines the next action: declare success, retry remediation, or escalate to human operators.
+
+<Info>
+  Verification uses the same health check commands as the monitoring node, ensuring consistency in success criteria.
+</Info>
+
+## Verification Workflow
+
+<Steps>
+  <Step title="Service Configuration Lookup">
+    Retrieves health check configuration for the affected service:
+    
+    ```python
+    service = state.get("affected_service", "")
+    service_cfg = config.SERVICES.get(service, {})
+    
+    if not service_cfg:
+        log("error", f"Servicio '{service}' no encontrado en configuracion.")
+        return {
+            "current_step": "verify",
+            "current_error": f"Servicio '{service}' sin configuracion de verificacion.",
+            "retry_count": state.get("retry_count", 0) + 1
+        }
+    ```
+  </Step>
+
+  <Step title="SSH Connection">
+    Establishes connection to run the health check:
+    
+    ```python
+    ssh = SSHClient(
+        hostname=config.SSH_HOST,
+        port=config.SSH_PORT,
+        username=config.SSH_USER,
+        password=config.SSH_PASS
+    )
+    ```
+  </Step>
+
+  <Step title="Health Check Execution">
+    Runs the service-specific check command:
+    
+    ```python
+    code, out, err = ssh.execute_command(service_cfg["check_command"])
+    ssh.close()
+    ```
+  </Step>
+
+  <Step title="Status Evaluation">
+    Checks if the service is now running:
+    
+    ```python
+    if service_cfg["running_indicator"] in out:
+        log("verify", f"Servicio '{service}' RECUPERADO.")
+        return {"current_step": "verify", "current_error": None}
+    ```
+  </Step>
+
+  <Step title="Retry Decision">
+    If still failed, increments retry counter:
+    
+    ```python
+    else:
+        retry = state.get("retry_count", 0) + 1
+        log("warning", f"Servicio '{service}' sigue caido. Intento {retry}.")
+        return {
+            "current_step": "verify",
+            "current_error": state.get("current_error"),
+            "retry_count": retry
+        }
+    ```
+  </Step>
+</Steps>
+
+## Health Check Consistency
+
+Verification uses the same check logic as monitoring:
+
+```python
+code, out, err = ssh.execute_command(service_cfg["check_command"])
+
+if service_cfg["running_indicator"] in out:
+    # Service is running
+```
+
+This ensures that a service passing verification will also pass future monitoring checks.
+
+<Note>
+  The `running_indicator` is a string that must appear in the command output for the service to be considered healthy (e.g., "active (running)").
+</Note>
+
+## Success Response
+
+When verification succeeds, the error is cleared:
+
+```python
+log("verify", f"Servicio '{service}' RECUPERADO.")
+return {"current_step": "verify", "current_error": None}
+```
+
+<CardGroup cols={2}>
+  <Card title="current_error: None" icon="circle-check">
+    Signals to the workflow that remediation succeeded
+  </Card>
+  
+  <Card title="Workflow Termination" icon="stop">
+    With no error, the agent returns to monitoring mode
+  </Card>
+</CardGroup>
+
+## Failure Response
+
+When verification fails, the retry counter is incremented:
+
+```python
+retry = state.get("retry_count", 0) + 1
+log("warning", f"Servicio '{service}' sigue caido. Intento {retry}.")
+
+return {
+    "current_step": "verify",
+    "current_error": state.get("current_error"),
+    "retry_count": retry
+}
+```
+
+<Warning>
+  The persistent `current_error` triggers another remediation cycle, with the diagnosis and planning nodes now aware of the increased retry count.
+</Warning>
+
+## Retry Logic
+
+The retry counter influences subsequent remediation:
+
+<CardGroup cols={2}>
+  <Card title="Diagnosis" icon="magnifying-glass">
+    The diagnosis node receives retry count and adjusts its analysis accordingly
+  </Card>
+  
+  <Card title="Planning" icon="list-check">
+    The planner includes retry count in its prompt, enabling progressive problem-solving strategies
+  </Card>
+</CardGroup>
+
+Example from planning node:
+```python
+HumanMessage(content=(
+    f"Error: {error}\n"
+    f"Intento: {retry_count + 1}\n"
+    f"Diagnostico: {diagnosis}"
+))
+```
+
+## Missing Service Configuration
+
+If the service isn't in the configuration:
+
+```python
+if not service_cfg:
+    log("error", f"Servicio '{service}' no encontrado en configuracion.")
+    return {
+        "current_step": "verify",
+        "current_error": f"Servicio '{service}' sin configuracion de verificacion.",
+        "retry_count": state.get("retry_count", 0) + 1
+    }
+```
+
+This creates an error state that will likely escalate, as the agent cannot verify a service it doesn't know how to check.
+
+## Exception Handling
+
+Verification handles SSH and execution errors:
+
+```python
+except Exception as e:
+    log("error", f"Error en verificacion: {e}")
+    return {
+        "current_step": "verify",
+        "current_error": str(e),
+        "retry_count": state.get("retry_count", 0) + 1
+    }
+```
+
+<Tip>
+  Exceptions during verification are treated as verification failures, triggering another remediation attempt rather than halting the workflow.
+</Tip>
+
+## State Fields
+
+Verification updates these state fields:
+
+<CardGroup cols={3}>
+  <Card title="current_error" icon="bug">
+    None if recovered, preserved if still failed
+  </Card>
+  
+  <Card title="retry_count" icon="rotate">
+    Incremented on each failed verification
+  </Card>
+  
+  <Card title="current_step" icon="location-dot">
+    Set to "verify" to mark workflow position
+  </Card>
+</CardGroup>
+
+## Workflow Integration
+
+The verification result determines the next node:
+
+```python
+# In workflow graph definition
+if state["current_error"] is None:
+    # Return to monitoring
+    return "monitor"
+else:
+    # Retry remediation
+    return "diagnose"
+```
+
+## Progressive Remediation
+
+With each failed verification:
+
+1. **Retry count increases** → Diagnosis and planning adapt strategies
+2. **Memory accumulates** → Failed approaches are excluded
+3. **Context grows** → LLM has more information about what didn't work
+
+<Info>
+  This progressive approach increases the likelihood of success with each iteration, as the system learns from its mistakes in real-time.
+</Info>
+
+## Max Retry Handling
+
+While not implemented in this node, workflow orchestration typically includes max retry limits:
+
+```python
+# Typically in workflow conditional logic
+if state["retry_count"] >= config.MAX_RETRIES:
+    return "escalate"  # Human intervention required
+```
+
+## Service Configuration Example
+
+Services must define health check commands:
+
+```python
+SERVICES = {
+    "nginx": {
+        "check_command": "sudo service nginx status",
+        "running_indicator": "is running",
+        "type": "service"
+    },
+    "postgresql": {
+        "check_command": "sudo service postgresql status",
+        "running_indicator": "active (running)",
+        "type": "database"
+    }
+}
+```
+
+<Note>
+  The `running_indicator` must be a reliable substring that only appears when the service is healthy.
+</Note>
+
+## Logging and Observability
+
+Detailed logging tracks verification outcomes:
+
+```python
+log("verify", "Comprobando si el servicio se recupero...")
+log("verify", f"Servicio '{service}' RECUPERADO.")
+log("warning", f"Servicio '{service}' sigue caido. Intento {retry}.")
+log("error", f"Error en verificacion: {e}")
+```
+
+## Implementation Location
+
+Source: `src/agent/nodes/verify.py:17`
+
+## Workflow Loop
+
+Verification completes the autonomous remediation cycle:
+
+1. **Monitor** detects failure
+2. **Diagnose** analyzes the problem
+3. **Plan** generates remediation commands
+4. **Approve** validates security
+5. **Execute** runs the commands
+6. **Verify** confirms recovery
+
+If verification fails, the loop repeats from diagnosis with accumulated context and memory.
+
+<Tip>
+  This closed-loop architecture enables true autonomous operation, with the system continuously learning and adapting until the issue is resolved.
+</Tip>

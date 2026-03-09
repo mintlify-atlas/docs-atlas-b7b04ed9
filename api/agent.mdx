@@ -1,0 +1,364 @@
+---
+title: Agent Control
+description: Control and monitor the autonomous agent
+---
+
+## Overview
+
+The Agent Control endpoints allow you to start, stop, approve actions, and retrieve the state of the Sentinel AI autonomous monitoring agent. The agent operates in cycles, monitoring services, diagnosing issues, and executing remediation actions.
+
+## Agent Lifecycle
+
+The agent can be in one of the following states:
+
+- `idle`: Not currently running
+- `running`: Actively executing a monitoring cycle
+- `waiting`: Paused and waiting for human approval
+- `error`: Encountered a critical error
+
+## Run Agent
+
+<CodeGroup>
+```bash cURL
+curl -X POST http://localhost:8000/agent/run
+```
+
+```python Python
+import requests
+
+response = requests.post("http://localhost:8000/agent/run")
+print(response.json())
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/agent/run', {
+  method: 'POST'
+})
+  .then(res => res.json())
+  .then(data => console.log(data));
+```
+</CodeGroup>
+
+Starts the autonomous agent in the background. The agent will begin monitoring services and executing its analysis cycle.
+
+**Endpoint:** `POST /agent/run`
+
+### Response
+
+<ResponseField name="status" type="string">
+  Operation status - will be "started"
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation message
+</ResponseField>
+
+```json
+{
+  "status": "started",
+  "message": "Agent execution triggered"
+}
+```
+
+### Error Responses
+
+**409 Conflict** - Agent is already running:
+
+```json
+{
+  "detail": "Agent is already running"
+}
+```
+
+<Note>
+  The agent runs as a background task. Use the [Get Agent State](#get-agent-state) endpoint to monitor progress.
+</Note>
+
+## Stop Agent
+
+<CodeGroup>
+```bash cURL
+curl -X POST http://localhost:8000/agent/stop
+```
+
+```python Python
+import requests
+
+response = requests.post("http://localhost:8000/agent/stop")
+print(response.json())
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/agent/stop', {
+  method: 'POST'
+})
+  .then(res => res.json())
+  .then(data => console.log(data));
+```
+</CodeGroup>
+
+Sends a stop signal to the running agent. The agent will complete its current step and then transition to idle state.
+
+**Endpoint:** `POST /agent/stop`
+
+### Response
+
+<ResponseField name="status" type="string">
+  Operation status - will be "stopping"
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation message
+</ResponseField>
+
+```json
+{
+  "status": "stopping",
+  "message": "Stop signal sent to agent"
+}
+```
+
+### Error Responses
+
+**400 Bad Request** - Agent is not running:
+
+```json
+{
+  "detail": "Agent is not running"
+}
+```
+
+<Warning>
+  The stop operation is graceful. The agent will complete its current operation before stopping.
+</Warning>
+
+## Approve Agent Action
+
+<CodeGroup>
+```bash cURL (Approve)
+curl -X POST "http://localhost:8000/agent/approve?action=approve"
+```
+
+```bash cURL (Reject)
+curl -X POST "http://localhost:8000/agent/approve?action=reject"
+```
+
+```python Python
+import requests
+
+# Approve the action
+response = requests.post(
+    "http://localhost:8000/agent/approve",
+    params={"action": "approve"}
+)
+print(response.json())
+
+# Or reject the action
+response = requests.post(
+    "http://localhost:8000/agent/approve",
+    params={"action": "reject"}
+)
+print(response.json())
+```
+
+```javascript JavaScript
+// Approve
+fetch('http://localhost:8000/agent/approve?action=approve', {
+  method: 'POST'
+})
+  .then(res => res.json())
+  .then(data => console.log(data));
+
+// Reject
+fetch('http://localhost:8000/agent/approve?action=reject', {
+  method: 'POST'
+})
+  .then(res => res.json())
+  .then(data => console.log(data));
+```
+</CodeGroup>
+
+When the agent status is `waiting`, this endpoint allows you to approve or reject a proposed action. The agent will then resume execution based on your decision.
+
+**Endpoint:** `POST /agent/approve`
+
+### Query Parameters
+
+<ParamField query="action" type="string" required>
+  The approval decision. Must be either `"approve"` or `"reject"`
+</ParamField>
+
+### Response
+
+<ResponseField name="status" type="string">
+  Operation status - will be "resuming"
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message indicating whether the action was approved or rejected
+</ResponseField>
+
+```json
+{
+  "status": "resuming",
+  "message": "Aprobacion recibida. Reanudando..."
+}
+```
+
+### Error Responses
+
+**400 Bad Request** - Agent is not waiting for approval:
+
+```json
+{
+  "detail": "Agent is not waiting for approval"
+}
+```
+
+**400 Bad Request** - Invalid action value:
+
+```json
+{
+  "detail": "Invalid action"
+}
+```
+
+<Note>
+  This endpoint is only valid when the agent state is `waiting`. Check the agent state before calling this endpoint.
+</Note>
+
+## Get Agent State
+
+<CodeGroup>
+```bash cURL
+curl http://localhost:8000/agent/state
+```
+
+```python Python
+import requests
+
+response = requests.get("http://localhost:8000/agent/state")
+state = response.json()
+print(f"Agent status: {state['status']}")
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/agent/state')
+  .then(res => res.json())
+  .then(state => console.log('Agent status:', state.status));
+```
+</CodeGroup>
+
+Retrieves the complete current state of the agent, including status, execution details, and diagnostic information.
+
+**Endpoint:** `GET /agent/state`
+
+### Response
+
+The response contains the full agent state object:
+
+<ResponseField name="status" type="string">
+  Current agent status: `"idle"`, `"running"`, `"waiting"`, or `"error"`
+</ResponseField>
+
+<ResponseField name="last_run" type="string | null">
+  ISO 8601 timestamp of the last agent execution, or `null` if never run
+</ResponseField>
+
+<ResponseField name="current_step" type="string | null">
+  The current step in the agent's execution flow (e.g., `"monitor"`, `"diagnose"`, `"remediate"`)
+</ResponseField>
+
+<ResponseField name="stop_requested" type="boolean">
+  Whether a stop request has been issued
+</ResponseField>
+
+<ResponseField name="logs" type="array">
+  Array of log entries from the current execution
+</ResponseField>
+
+<ResponseField name="current_error" type="string | null">
+  Description of the current error being handled, if any
+</ResponseField>
+
+<ResponseField name="affected_service" type="string | null">
+  Name of the service currently being analyzed or remediated
+</ResponseField>
+
+<ResponseField name="retry_count" type="integer">
+  Number of retry attempts for the current operation
+</ResponseField>
+
+<ResponseField name="diagnosis_log" type="array">
+  Log of diagnostic steps performed during the current cycle
+</ResponseField>
+
+<ResponseField name="security_flags" type="array">
+  Security-related flags or warnings identified during monitoring
+</ResponseField>
+
+<ResponseField name="approval_status" type="string">
+  Approval status: `"WAITING_APPROVAL"`, `"APPROVED"`, or `"REJECTED"`
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "status": "running",
+  "last_run": "2026-03-09T14:30:00.123456",
+  "current_step": "diagnose",
+  "stop_requested": false,
+  "logs": [],
+  "current_error": "Service postgresql is not responding",
+  "affected_service": "postgresql",
+  "retry_count": 0,
+  "diagnosis_log": [
+    "Checked service status",
+    "Analyzed system logs",
+    "Identified connection timeout issue"
+  ],
+  "security_flags": [],
+  "approval_status": null
+}
+```
+
+## Memory Endpoint
+
+<CodeGroup>
+```bash cURL
+curl http://localhost:8000/memory
+```
+
+```python Python
+import requests
+
+response = requests.get("http://localhost:8000/memory")
+episodes = response.json()
+print(f"Total episodes: {len(episodes)}")
+```
+</CodeGroup>
+
+Retrieves the agent's episodic memory, containing historical records of monitoring cycles and remediation actions.
+
+**Endpoint:** `GET /memory`
+
+### Response
+
+Returns an array of memory episodes. Each episode represents a complete monitoring and remediation cycle.
+
+```json
+[
+  {
+    "timestamp": "2026-03-09T14:00:00",
+    "service": "postgresql",
+    "issue": "Service not responding",
+    "actions_taken": ["Restarted service"],
+    "outcome": "Resolved"
+  }
+]
+```
+
+<Note>
+  The exact structure of memory episodes depends on the agent's memory implementation.
+</Note>

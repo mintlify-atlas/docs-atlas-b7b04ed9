@@ -1,0 +1,562 @@
+---
+title: 'Knowledge Base'
+description: 'Vector-based RAG system for querying technical documentation'
+icon: 'brain'
+---
+
+## Overview
+
+The `VectorKnowledgeBase` class provides a Retrieval-Augmented Generation (RAG) system powered by Pinecone, LlamaIndex, and OpenAI embeddings. It enables the agent to query technical manuals and documentation to inform diagnosis and remediation.
+
+## Import
+
+```python
+from src.core.knowledge import VectorKnowledgeBase, kb
+```
+
+The global singleton `kb` is initialized at startup:
+
+```python
+from src.core.knowledge import kb
+
+if kb:
+    response = kb.query("How to restart nginx?")
+    print(response)
+```
+
+## VectorKnowledgeBase
+
+### Constructor
+
+```python
+class VectorKnowledgeBase:
+    def __init__(self)
+```
+
+Initializes the knowledge base with Pinecone vector store and OpenAI embeddings.
+
+<ParamField path="self.pc" type="Pinecone">
+  Pinecone client instance using `config.PINECONE_API_KEY`
+</ParamField>
+
+<ParamField path="self.index_name" type="str">
+  Pinecone index name from `config.PINECONE_INDEX_NAME`
+</ParamField>
+
+<ParamField path="self.vector_store" type="PineconeVectorStore">
+  LlamaIndex wrapper for Pinecone index
+</ParamField>
+
+<ParamField path="self.embed_model" type="OpenAIEmbedding">
+  Embedding model (`text-embedding-ada-002` by default)
+</ParamField>
+
+<ParamField path="self.llm" type="OpenAI">
+  GPT-4 instance for query synthesis
+</ParamField>
+
+<ParamField path="self.reranker" type="CohereRerank">
+  Cohere reranker for improving retrieval quality (top_n=5)
+</ParamField>
+
+<ParamField path="self.index" type="VectorStoreIndex | None">
+  LlamaIndex vector store index (lazy loaded)
+</ParamField>
+
+### Example
+
+```python
+from src.core.knowledge import VectorKnowledgeBase
+
+kb = VectorKnowledgeBase()
+print(f"Connected to index: {kb.index_name}")
+```
+
+<Note>
+  The constructor automatically creates the Pinecone index if it doesn't exist using `ensure_index_exists()`.
+</Note>
+
+---
+
+## Methods
+
+### ensure_index_exists
+
+```python
+def ensure_index_exists(self) -> None
+```
+
+Creates the Pinecone index if it doesn't already exist.
+
+**Behavior:**
+
+1. Lists existing Pinecone indexes
+2. If `index_name` not found, creates a new index with:
+   - Dimension: `config.EMBEDDING_DIM` (1536 for Ada-002)
+   - Metric: `"cosine"`
+   - Spec: Serverless on AWS `us-east-1`
+
+**Example:**
+
+```python
+kb = VectorKnowledgeBase()
+kb.ensure_index_exists()
+# [RAG] Indice existente: sentinel-docs
+```
+
+<Warning>
+  Index creation can take 1-2 minutes. The method will block until the index is ready.
+</Warning>
+
+---
+
+### ingest_manuals
+
+```python
+def ingest_manuals(self) -> None
+```
+
+Ingests all PDF manuals from `config.MANUALS_DIR` using LlamaParse.
+
+**Behavior:**
+
+1. Initializes LlamaParse for PDF → Markdown conversion
+2. Reads all PDFs from the manuals directory
+3. Parses documents with LlamaParse (extracts tables, formatting)
+4. Splits documents into chunks (1024 tokens, 200 overlap)
+5. Generates embeddings and stores in Pinecone
+
+**Example:**
+
+```python
+from src.core.knowledge import VectorKnowledgeBase
+
+kb = VectorKnowledgeBase()
+kb.ingest_manuals()
+# [RAG] Iniciando ingesta de manuales con LlamaParse...
+# [RAG] 47 documentos cargados. Indexando en Pinecone...
+# [RAG] Ingesta completada.
+```
+
+**Configuration:**
+
+<ParamField path="config.MANUALS_DIR" type="str" default="./manuals">
+  Directory containing PDF documentation files
+</ParamField>
+
+<ParamField path="config.LLAMA_CLOUD_API_KEY" type="str" required>
+  API key for LlamaParse service
+</ParamField>
+
+<Tip>
+  Run `ingest_manuals()` once during initial setup or when documentation is updated. The vector embeddings persist in Pinecone.
+</Tip>
+
+---
+
+### ingest_file
+
+```python
+def ingest_file(self, filepath: str) -> None
+```
+
+Ingests a single file (PDF or text) into the knowledge base.
+
+<ParamField path="filepath" type="str" required>
+  Absolute path to the file to ingest
+</ParamField>
+
+**Behavior:**
+
+1. Detects file type (PDF uses LlamaParse, others use SimpleDirectoryReader)
+2. Loads and parses the document
+3. Splits into chunks using SentenceSplitter
+4. Inserts nodes into the existing vector index
+
+**Example:**
+
+```python
+from src.core.knowledge import kb
+
+kb.ingest_file("/path/to/new_manual.pdf")
+# [RAG] Ingesta incremental: new_manual.pdf
+# [RAG] 12 fragmentos cargados desde new_manual.pdf.
+# [RAG] 12 nodos insertados en Pinecone.
+```
+
+**Chunking Parameters:**
+
+<ParamField path="chunk_size" type="int" default="1024">
+  Maximum tokens per chunk
+</ParamField>
+
+<ParamField path="chunk_overlap" type="int" default="200">
+  Overlapping tokens between chunks for context preservation
+</ParamField>
+
+<Note>
+  Use `ingest_file()` to incrementally add new documentation without re-indexing the entire corpus.
+</Note>
+
+---
+
+### query
+
+```python
+def query(self, query_text: str) -> str
+```
+
+Performs a RAG query and returns a synthesized answer.
+
+<ParamField path="query_text" type="str" required>
+  Natural language question in English or Spanish
+</ParamField>
+
+<ResponseField name="return" type="str">
+  Synthesized answer in Spanish with sources appended
+</ResponseField>
+
+**Behavior:**
+
+1. **Query Rewriting**: Generates 5 variations using `_rewrite_query()`
+2. **Retrieval**: Fetches top 5 chunks for each query (similarity search)
+3. **Deduplication**: Removes duplicate nodes by ID
+4. **Reranking**: Uses Cohere to select the 5 most relevant chunks
+5. **Synthesis**: Generates answer using GPT-4 with strict rules
+6. **Source Attribution**: Appends source file names
+
+**Example:**
+
+```python
+from src.core.knowledge import kb
+
+response = kb.query("How do I fix nginx port conflict?")
+print(response)
+```
+
+**Output:**
+
+```
+Un conflicto de puerto en nginx generalmente ocurre cuando otro proceso está usando el puerto 80 o 443.
+
+Para solucionarlo:
+1. Identifica el proceso: `sudo ss -tulpn | grep :80`
+2. Detén nginx: `sudo service nginx stop`
+3. Mata el proceso conflictivo: `sudo kill -9 <PID>`
+4. Reinicia nginx: `sudo service nginx start`
+
+**Fuentes:**
+- nginx_manual.pdf
+- troubleshooting_guide.pdf
+```
+
+### Query Rewriting
+
+The `_rewrite_query()` method generates diverse search queries:
+
+```python
+def _rewrite_query(self, query_text: str, llm) -> list:
+    # Generates 5 variations:
+    # 1. English with official terminology
+    # 2. Spanish with technical terms
+    # 3. Specific section/chapter names
+    # 4. Keywords/values the answer would contain
+    # 5. Alternative interpretation
+    
+    queries = [
+        query_text,  # Original query
+        "nginx port binding errors and solutions",
+        "errores de enlace de puerto nginx y soluciones",
+        "nginx.conf listen directive configuration",
+        "port 80 address already in use nginx",
+        "how to resolve nginx startup failures"
+    ]
+    return queries[:6]
+```
+
+### Response Synthesis Rules
+
+The LLM is prompted with strict constraints:
+
+<ParamField path="1" type="rule">
+  Respond ALWAYS in Spanish
+</ParamField>
+
+<ParamField path="2" type="rule">
+  Use ONLY information from the provided context
+</ParamField>
+
+<ParamField path="3" type="rule">
+  NEVER invent or assume information not in context
+</ParamField>
+
+<ParamField path="4" type="rule">
+  Reproduce tables completely and faithfully
+</ParamField>
+
+<ParamField path="5" type="rule">
+  Combine information from multiple fragments coherently
+</ParamField>
+
+<ParamField path="6" type="rule">
+  If insufficient context, respond: "No encontré información específica sobre eso en los documentos cargados."
+</ParamField>
+
+---
+
+### stream_query
+
+```python
+def stream_query(self, query_text: str) -> Generator[dict, None, None]
+```
+
+Streaming version of `query()` for real-time UI updates.
+
+<ParamField path="query_text" type="str" required>
+  Natural language question
+</ParamField>
+
+<ResponseField name="yield" type="dict">
+  Generator yielding event dictionaries with `event` and `data` keys
+</ResponseField>
+
+**Event Types:**
+
+<ParamField path="thinking" type="event">
+  Progress updates during retrieval
+</ParamField>
+
+<ParamField path="message" type="event">
+  Incremental response tokens
+</ParamField>
+
+<ParamField path="done" type="event">
+  Signals completion
+</ParamField>
+
+**Example:**
+
+```python
+from src.core.knowledge import kb
+
+for event in kb.stream_query("How to configure PostgreSQL replication?"):
+    if event["event"] == "thinking":
+        print(f"[Status] {event['data']}")
+    elif event["event"] == "message":
+        print(event["data"], end="", flush=True)
+    elif event["event"] == "done":
+        print("\n[Complete]")
+```
+
+**Output:**
+
+```
+[Status] Analizando tu pregunta...
+[Status] Optimizando búsqueda...
+[Status] Consultando base de conocimiento vectorizada...
+[Status] Leyendo 5 fragmentos relevantes...
+La replicación en PostgreSQL se configura mediante...
+
+**Fuentes:**
+- postgresql_manual.pdf
+[Complete]
+```
+
+<Tip>
+  Use `stream_query()` for chat interfaces to provide instant feedback while processing.
+</Tip>
+
+---
+
+## Integration Example
+
+Using the knowledge base in the diagnosis node:
+
+```python
+from src.core.knowledge import kb
+from src.agent.state import AgentState
+from typing import Dict, Any
+
+def diagnose_node(state: AgentState) -> Dict[str, Any]:
+    error = state.get("current_error", "")
+    
+    # Query knowledge base
+    rag_context = ""
+    if kb:
+        rag_context = kb.query(f"How to fix: {error}")
+    
+    # Use context in LLM prompt
+    diagnosis = llm.invoke([
+        SystemMessage(content=f"Documentation:\n{rag_context[:1000]}"),
+        HumanMessage(content=f"Error: {error}")
+    ])
+    
+    return {
+        "current_step": "diagnose",
+        "diagnosis_log": [diagnosis.content]
+    }
+```
+
+## Advanced Configuration
+
+### Custom Embedding Model
+
+```python
+from llama_index.embeddings.openai import OpenAIEmbedding
+
+kb = VectorKnowledgeBase()
+kb.embed_model = OpenAIEmbedding(model="text-embedding-3-large")
+```
+
+### Adjust Retrieval Parameters
+
+```python
+# Retrieve more chunks
+retriever = kb.index.as_retriever(similarity_top_k=10)
+
+# Use different reranking top_n
+from llama_index.postprocessor.cohere_rerank import CohereRerank
+kb.reranker = CohereRerank(api_key=config.COHERE_API_KEY, top_n=10)
+```
+
+### Multi-Language Support
+
+The system automatically handles bilingual queries:
+
+```python
+# English query
+response_en = kb.query("How to restart nginx?")
+
+# Spanish query
+response_es = kb.query("¿Cómo reiniciar nginx?")
+
+# Both return Spanish responses based on English+Spanish docs
+```
+
+## Performance Optimization
+
+### Lazy Index Loading
+
+The vector index is loaded on first query:
+
+```python
+if not self.index:
+    self.index = VectorStoreIndex.from_vector_store(
+        self.vector_store,
+        embed_model=self.embed_model
+    )
+```
+
+### Caching Strategies
+
+Implement query caching for repeated questions:
+
+```python
+from functools import lru_cache
+
+class CachedKnowledgeBase(VectorKnowledgeBase):
+    @lru_cache(maxsize=100)
+    def query(self, query_text: str) -> str:
+        return super().query(query_text)
+```
+
+## Error Handling
+
+```python
+from src.core.knowledge import kb
+
+try:
+    if kb:
+        response = kb.query("How to fix database connection?")
+    else:
+        print("Knowledge base not initialized")
+except Exception as e:
+    print(f"RAG query failed: {e}")
+    # Fallback to LLM without RAG context
+```
+
+## Global Singleton
+
+The knowledge base is initialized as a global singleton:
+
+```python
+# In src/core/knowledge.py
+kb = None
+
+def init_knowledge_base():
+    global kb
+    try:
+        kb = VectorKnowledgeBase()
+        log("system", "Base de conocimiento inicializada correctamente.")
+    except Exception as e:
+        log("error", f"No se pudo inicializar la base de conocimiento: {e}")
+        kb = None
+```
+
+Usage:
+
+```python
+from src.core.knowledge import init_knowledge_base, kb
+
+# Initialize at startup
+init_knowledge_base()
+
+# Use throughout application
+if kb:
+    kb.query("How to optimize PostgreSQL?")
+```
+
+## Required Environment Variables
+
+<ParamField path="PINECONE_API_KEY" type="str" required>
+  Pinecone API key for vector database
+</ParamField>
+
+<ParamField path="PINECONE_INDEX_NAME" type="str" default="sentinel-docs">
+  Name of the Pinecone index
+</ParamField>
+
+<ParamField path="OPENAI_API_KEY" type="str" required>
+  OpenAI API key for embeddings and LLM
+</ParamField>
+
+<ParamField path="COHERE_API_KEY" type="str" required>
+  Cohere API key for reranking
+</ParamField>
+
+<ParamField path="LLAMA_CLOUD_API_KEY" type="str" required>
+  LlamaCloud API key for PDF parsing
+</ParamField>
+
+<ParamField path="EMBEDDING_MODEL" type="str" default="text-embedding-ada-002">
+  OpenAI embedding model name
+</ParamField>
+
+<ParamField path="EMBEDDING_DIM" type="int" default="1536">
+  Embedding vector dimension
+</ParamField>
+
+<ParamField path="MODEL_NAME" type="str" default="gpt-4">
+  LLM model for synthesis
+</ParamField>
+
+<ParamField path="TEMPERATURE" type="float" default="0.0">
+  LLM temperature (0.0 for factual responses)
+</ParamField>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Agent Nodes" icon="cube" href="/sdk/nodes">
+    Use knowledge base in diagnose_node
+  </Card>
+  <Card title="Configuration" icon="gear" href="/sdk/config">
+    Configure RAG parameters
+  </Card>
+  <Card title="Memory System" icon="database" href="/sdk/memory">
+    Complement RAG with episodic memory
+  </Card>
+  <Card title="Event Bus" icon="rss" href="/sdk/event-bus">
+    Log RAG query events
+  </Card>
+</CardGroup>

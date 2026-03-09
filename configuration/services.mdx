@@ -1,0 +1,654 @@
+---
+title: Services Configuration
+description: Configure services to monitor and manage with Sentinel AI
+icon: 'server'
+---
+
+Sentinel AI monitors and manages services defined in `services.json`. The configuration supports multiple service types including web servers, databases, and system services.
+
+## Overview
+
+Services are configured in `data/services.json` with check commands and running indicators. Sentinel AI periodically executes these commands to verify service health.
+
+<Info>
+  **Default Monitor Interval:** 30 seconds (configured via `MONITOR_INTERVAL` in `config.py`)
+</Info>
+
+## Service Configuration File
+
+The services file is located at `data/services.json` and is automatically loaded on startup:
+
+<CodeGroup>
+```python src/core/config.py
+DATA_DIR = "data"
+SERVICES_FILE = os.path.join(DATA_DIR, "services.json")
+
+def load_services(self):
+    if os.path.exists(self.SERVICES_FILE):
+        try:
+            with open(self.SERVICES_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return self.DEFAULT_SERVICES.copy()
+    return self.DEFAULT_SERVICES.copy()
+```
+
+```json data/services.json
+{
+  "nginx": {
+    "check_command": "service nginx status",
+    "running_indicator": "is running",
+    "type": "web_server"
+  },
+  "postgresql": {
+    "check_command": "service postgresql status",
+    "running_indicator": "online",
+    "type": "database"
+  },
+  "ssh": {
+    "check_command": "service ssh status",
+    "running_indicator": "is running",
+    "type": "system"
+  }
+}
+```
+</CodeGroup>
+
+## Service Schema
+
+Each service requires three properties:
+
+<ParamField path="check_command" type="string" required>
+  Shell command to check service status. Executed via SSH on the target server.
+  
+  **Examples:**
+  - `service nginx status`
+  - `systemctl status postgresql`
+  - `docker ps | grep my-container`
+  - `/usr/local/bin/check_custom_service.sh`
+</ParamField>
+
+<ParamField path="running_indicator" type="string" required>
+  String pattern to search for in command output that indicates the service is running.
+  
+  **Examples:**
+  - `is running`
+  - `active (running)`
+  - `online`
+  - `Status: healthy`
+  
+  <Note>
+    The check is case-sensitive and uses substring matching. If this string is found in the command output, the service is considered healthy.
+  </Note>
+</ParamField>
+
+<ParamField path="type" type="string" required>
+  Service category for organization and reporting.
+  
+  **Common types:**
+  - `web_server` - Nginx, Apache, Caddy
+  - `database` - PostgreSQL, MySQL, MongoDB
+  - `system` - SSH, cron, systemd services
+  - `application` - Custom applications
+  - `container` - Docker containers
+  - `cache` - Redis, Memcached
+</ParamField>
+
+## Default Services
+
+Sentinel AI includes three default services defined in `src/core/config.py`:
+
+<CodeGroup>
+```python src/core/config.py (lines 39-55)
+DEFAULT_SERVICES = {
+    "nginx": {
+        "check_command": "service nginx status",
+        "running_indicator": "is running",
+        "type": "web_server"
+    },
+    "postgresql": {
+        "check_command": "service postgresql status",
+        "running_indicator": "online",
+        "type": "database"
+    },
+    "ssh": {
+        "check_command": "service ssh status",
+        "running_indicator": "is running",
+        "type": "system"
+    }
+}
+```
+</CodeGroup>
+
+<Tip>
+  These defaults are used if `data/services.json` doesn't exist or fails to load. They serve as a template for adding your own services.
+</Tip>
+
+## Managing Services
+
+### Adding Services
+
+Use the `add_service()` method to add new services:
+
+<CodeGroup>
+```python Python API
+from src.core.config import config
+
+# Add a Redis service
+config.add_service(
+    name="redis",
+    check_cmd="service redis-server status",
+    indicator="is running",
+    service_type="cache"
+)
+
+# Add a Docker container
+config.add_service(
+    name="api-container",
+    check_cmd="docker inspect -f '{{.State.Status}}' api-container",
+    indicator="running",
+    service_type="container"
+)
+
+# Add a custom application
+config.add_service(
+    name="myapp",
+    check_cmd="systemctl status myapp.service",
+    indicator="active (running)",
+    service_type="application"
+)
+```
+
+```json Manual Edit (services.json)
+{
+  "redis": {
+    "check_command": "service redis-server status",
+    "running_indicator": "is running",
+    "type": "cache"
+  },
+  "api-container": {
+    "check_command": "docker inspect -f '{{.State.Status}}' api-container",
+    "running_indicator": "running",
+    "type": "container"
+  },
+  "myapp": {
+    "check_command": "systemctl status myapp.service",
+    "running_indicator": "active (running)",
+    "type": "application"
+  }
+}
+```
+</CodeGroup>
+
+<Info>
+  The `add_service()` method automatically saves changes to `data/services.json`.
+</Info>
+
+### Removing Services
+
+Remove services using the `remove_service()` method:
+
+<CodeGroup>
+```python Python API
+from src.core.config import config
+
+# Remove a service
+config.remove_service("redis")
+
+# Verify removal
+print("redis" in config.SERVICES)  # False
+```
+
+```json Manual Edit
+# Simply delete the service entry from services.json and restart Sentinel AI
+```
+</CodeGroup>
+
+### Updating Services
+
+To update a service, remove and re-add it:
+
+```python
+from src.core.config import config
+
+# Update nginx configuration
+config.remove_service("nginx")
+config.add_service(
+    name="nginx",
+    check_cmd="systemctl status nginx",  # Changed to systemctl
+    indicator="active (running)",        # Updated indicator
+    service_type="web_server"
+)
+```
+
+## Service Examples
+
+### Web Servers
+
+<CodeGroup>
+```json Nginx
+{
+  "nginx": {
+    "check_command": "service nginx status",
+    "running_indicator": "is running",
+    "type": "web_server"
+  }
+}
+```
+
+```json Apache
+{
+  "apache2": {
+    "check_command": "service apache2 status",
+    "running_indicator": "is running",
+    "type": "web_server"
+  }
+}
+```
+
+```json Caddy
+{
+  "caddy": {
+    "check_command": "systemctl status caddy",
+    "running_indicator": "active (running)",
+    "type": "web_server"
+  }
+}
+```
+</CodeGroup>
+
+### Databases
+
+<CodeGroup>
+```json PostgreSQL
+{
+  "postgresql": {
+    "check_command": "service postgresql status",
+    "running_indicator": "online",
+    "type": "database"
+  }
+}
+```
+
+```json MySQL
+{
+  "mysql": {
+    "check_command": "service mysql status",
+    "running_indicator": "is running",
+    "type": "database"
+  }
+}
+```
+
+```json MongoDB
+{
+  "mongodb": {
+    "check_command": "systemctl status mongod",
+    "running_indicator": "active (running)",
+    "type": "database"
+  }
+}
+```
+
+```json Redis
+{
+  "redis": {
+    "check_command": "service redis-server status",
+    "running_indicator": "is running",
+    "type": "cache"
+  }
+}
+```
+</CodeGroup>
+
+### Docker Containers
+
+<CodeGroup>
+```json Single Container
+{
+  "api-container": {
+    "check_command": "docker inspect -f '{{.State.Status}}' api-container",
+    "running_indicator": "running",
+    "type": "container"
+  }
+}
+```
+
+```json Container Health Check
+{
+  "web-app": {
+    "check_command": "docker inspect -f '{{.State.Health.Status}}' web-app",
+    "running_indicator": "healthy",
+    "type": "container"
+  }
+}
+```
+
+```json Docker Compose Service
+{
+  "app-service": {
+    "check_command": "docker-compose ps app | grep Up",
+    "running_indicator": "Up",
+    "type": "container"
+  }
+}
+```
+</CodeGroup>
+
+### Custom Applications
+
+<CodeGroup>
+```json Systemd Service
+{
+  "myapp": {
+    "check_command": "systemctl status myapp.service",
+    "running_indicator": "active (running)",
+    "type": "application"
+  }
+}
+```
+
+```json PID File Check
+{
+  "custom-daemon": {
+    "check_command": "test -f /var/run/daemon.pid && echo 'running'",
+    "running_indicator": "running",
+    "type": "application"
+  }
+}
+```
+
+```json Port Check
+{
+  "api-service": {
+    "check_command": "netstat -tuln | grep :8080",
+    "running_indicator": "LISTEN",
+    "type": "application"
+  }
+}
+```
+
+```json Process Check
+{
+  "worker": {
+    "check_command": "ps aux | grep '[w]orker.py'",
+    "running_indicator": "worker.py",
+    "type": "application"
+  }
+}
+```
+</CodeGroup>
+
+## Service Types
+
+Organize services by type for better reporting and management:
+
+<CardGroup cols={3}>
+  <Card title="Web Servers" icon="globe">
+    Nginx, Apache, Caddy, Traefik
+  </Card>
+  <Card title="Databases" icon="database">
+    PostgreSQL, MySQL, MongoDB, Redis
+  </Card>
+  <Card title="System Services" icon="gear">
+    SSH, cron, systemd, networking
+  </Card>
+  <Card title="Containers" icon="docker">
+    Docker containers and services
+  </Card>
+  <Card title="Applications" icon="code">
+    Custom applications and APIs
+  </Card>
+  <Card title="Cache Services" icon="bolt">
+    Redis, Memcached, Varnish
+  </Card>
+</CardGroup>
+
+## Health Check Patterns
+
+### Service Command
+
+Traditional service status check:
+
+```bash
+service nginx status
+service postgresql status
+service redis-server status
+```
+
+Look for: `is running`, `running`, `active`
+
+### Systemctl Command
+
+Systemd service manager:
+
+```bash
+systemctl status nginx
+systemctl is-active postgresql
+systemctl show -p SubState nginx
+```
+
+Look for: `active (running)`, `active`, `SubState=running`
+
+### Docker Commands
+
+Container status checks:
+
+```bash
+docker ps | grep container-name
+docker inspect -f '{{.State.Status}}' container-name
+docker inspect -f '{{.State.Health.Status}}' container-name
+```
+
+Look for: `Up`, `running`, `healthy`
+
+### Custom Scripts
+
+Use custom health check scripts:
+
+```bash
+/usr/local/bin/check_app_health.sh
+/opt/monitoring/service_status.py
+curl -sf http://localhost:8080/health || exit 1
+```
+
+Look for: Custom output patterns
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Specific Indicators" icon="bullseye">
+    Choose unique running indicators that won't appear in error messages. Use `active (running)` instead of just `active`.
+  </Card>
+  <Card title="Test Commands Manually" icon="flask">
+    Test each check command via SSH before adding to services.json to ensure it works correctly.
+  </Card>
+  <Card title="Keep Commands Fast" icon="gauge-high">
+    Avoid slow commands that could delay monitoring. Aim for sub-second execution time.
+  </Card>
+  <Card title="Handle Edge Cases" icon="triangle-exclamation">
+    Consider services that might be stopped intentionally. Use service types to group related checks.
+  </Card>
+  <Card title="Document Dependencies" icon="link">
+    Note service dependencies in your services.json comments (if using JSONC) or separate docs.
+  </Card>
+  <Card title="Version Control" icon="code-branch">
+    Keep services.json in version control to track configuration changes over time.
+  </Card>
+</CardGroup>
+
+## Advanced Configuration
+
+### Multi-Host Services
+
+Monitor the same service across multiple hosts:
+
+```python
+# Define services per host
+HOST_SERVICES = {
+    "prod-server-1": {
+        "nginx": {...},
+        "postgresql": {...}
+    },
+    "prod-server-2": {
+        "nginx": {...},
+        "api-app": {...}
+    }
+}
+```
+
+### Service Dependencies
+
+Track service dependencies for intelligent recovery:
+
+```python
+SERVICE_DEPENDENCIES = {
+    "api-app": ["postgresql", "redis"],
+    "nginx": ["api-app"],
+}
+
+# Start dependencies first during recovery
+def recover_service(service_name):
+    deps = SERVICE_DEPENDENCIES.get(service_name, [])
+    for dep in deps:
+        ensure_service_running(dep)
+    start_service(service_name)
+```
+
+### Custom Health Checks
+
+Implement application-specific health checks:
+
+```python
+import requests
+
+def check_api_health():
+    """Custom health check for API service."""
+    try:
+        response = requests.get("http://localhost:8080/health", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("status") == "healthy"
+    except Exception:
+        return False
+    return False
+
+# Register custom check
+CUSTOM_CHECKS = {
+    "api-service": check_api_health
+}
+```
+
+## Monitoring and Alerts
+
+Sentinel AI monitors services at regular intervals (default: 30 seconds):
+
+<CodeGroup>
+```python src/core/config.py
+MONITOR_INTERVAL = 30  # seconds
+MAX_RETRIES = 5
+```
+</CodeGroup>
+
+### Monitoring Behavior
+
+1. **Status Check**: Execute `check_command` via SSH
+2. **Pattern Match**: Search output for `running_indicator`
+3. **Health Decision**: Service is healthy if indicator is found
+4. **Recovery**: If unhealthy, attempt automated remediation
+5. **Retry Logic**: Up to `MAX_RETRIES` attempts with exponential backoff
+
+<Warning>
+  Failed health checks trigger the agent's diagnostic and recovery workflow. Ensure your check commands are reliable to avoid false positives.
+</Warning>
+
+## Troubleshooting
+
+<Accordion title="Service Always Shows as Down">
+  **Problem:** Service health check always fails even when service is running.
+  
+  **Solutions:**
+  - Test the check command manually via SSH: `ssh user@host 'service nginx status'`
+  - Verify the `running_indicator` string appears in the output
+  - Check that the SSH user has permission to run the check command
+  - Look for case sensitivity issues in the indicator string
+</Accordion>
+
+<Accordion title="Services Not Loading">
+  **Problem:** Services from services.json are not being monitored.
+  
+  **Solutions:**
+  - Verify `data/services.json` exists and is valid JSON
+  - Check file permissions: `ls -la data/services.json`
+  - Review startup logs for JSON parsing errors
+  - Test JSON validity: `python -m json.tool data/services.json`
+</Accordion>
+
+<Accordion title="Permission Denied During Checks">
+  **Problem:** Health checks fail with "Permission denied" errors.
+  
+  **Solutions:**
+  - Configure sudoers to allow check commands without password
+  - Add SSH user to appropriate groups (docker, systemd-journal)
+  - See [SSH Setup](/configuration/ssh-setup#user-permissions) for details
+</Accordion>
+
+<Accordion title="Slow Health Checks">
+  **Problem:** Monitoring interval is delayed due to slow check commands.
+  
+  **Solutions:**
+  - Use faster status check methods (e.g., `systemctl is-active` instead of `systemctl status`)
+  - Avoid commands that require DNS lookups or network calls
+  - Consider increasing `MONITOR_INTERVAL` if checks can't be optimized
+  - Use timeout flags: `timeout 5 service nginx status`
+</Accordion>
+
+## API Reference
+
+### Configuration Methods
+
+<CodeGroup>
+```python Config Methods
+from src.core.config import config
+
+# Load services from file
+services = config.load_services()
+
+# Save services to file
+config.save_services()
+
+# Add a new service
+config.add_service(
+    name="myservice",
+    check_cmd="systemctl status myservice",
+    indicator="active (running)",
+    service_type="application"
+)
+
+# Remove a service
+config.remove_service("myservice")
+
+# Access services dictionary
+all_services = config.SERVICES
+if "nginx" in config.SERVICES:
+    nginx_config = config.SERVICES["nginx"]
+    print(f"Check: {nginx_config['check_command']}")
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="SSH Setup" icon="terminal" href="/configuration/ssh-setup">
+    Configure SSH authentication and permissions
+  </Card>
+  <Card title="AI Models" icon="brain" href="/configuration/ai-models">
+    Customize AI model settings and behavior
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/deployment/docker">
+    Deploy Sentinel AI with Docker
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/features/monitoring">
+    Learn about service monitoring features
+  </Card>
+</CardGroup>

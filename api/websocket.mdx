@@ -1,0 +1,451 @@
+---
+title: WebSocket Logs
+description: Real-time log streaming via WebSocket
+---
+
+## Overview
+
+The WebSocket endpoint provides real-time streaming of Sentinel AI system logs and events. This allows clients to receive live updates about agent activities, service monitoring, errors, and system events.
+
+## Connect to WebSocket
+
+<CodeGroup>
+```javascript JavaScript
+const ws = new WebSocket('ws://localhost:8000/ws/logs');
+
+ws.onopen = () => {
+  console.log('Connected to log stream');
+};
+
+ws.onmessage = (event) => {
+  const logEvent = JSON.parse(event.data);
+  console.log(`[${logEvent.type}] ${logEvent.message}`);
+};
+
+ws.onerror = (error) => {
+  console.error('WebSocket error:', error);
+};
+
+ws.onclose = () => {
+  console.log('Disconnected from log stream');
+};
+```
+
+```python Python
+import asyncio
+import websockets
+import json
+
+async def stream_logs():
+    uri = "ws://localhost:8000/ws/logs"
+    
+    async with websockets.connect(uri) as websocket:
+        print("Connected to log stream")
+        
+        try:
+            async for message in websocket:
+                log_event = json.loads(message)
+                print(f"[{log_event['type']}] {log_event['message']}")
+        except websockets.exceptions.ConnectionClosed:
+            print("Connection closed")
+
+# Run the client
+asyncio.run(stream_logs())
+```
+
+```bash wscat CLI
+# Install wscat if needed: npm install -g wscat
+wscat -c ws://localhost:8000/ws/logs
+```
+</CodeGroup>
+
+Establishes a WebSocket connection to receive real-time log events.
+
+**Endpoint:** `ws://localhost:8000/ws/logs`
+
+**Protocol:** WebSocket
+
+## Event Structure
+
+All events are sent as JSON objects with the following structure:
+
+<ResponseField name="type" type="string">
+  The event type/category. Common values include:
+  - `"system"`: System-level events (startup, shutdown, state changes)
+  - `"agent"`: Agent execution events
+  - `"monitor"`: Service monitoring events
+  - `"error"`: Error messages
+  - `"config"`: Configuration changes
+  - `"security"`: Security-related events
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable log message describing the event
+</ResponseField>
+
+<ResponseField name="timestamp" type="string">
+  ISO 8601 timestamp when the event occurred
+</ResponseField>
+
+<ResponseField name="data" type="object" optional>
+  Additional structured data related to the event (event-specific)
+</ResponseField>
+
+## Event Types
+
+### System Events
+
+System-level events related to Sentinel AI's operation:
+
+```json
+{
+  "type": "system",
+  "message": "Sentinel AI Iniciado (Modo API) 🚀",
+  "timestamp": "2026-03-09T14:00:00.123456"
+}
+```
+
+```json
+{
+  "type": "system",
+  "message": "Ejecutando ciclo de analisis bajo demanda...",
+  "timestamp": "2026-03-09T14:05:00.123456"
+}
+```
+
+```json
+{
+  "type": "system",
+  "message": "Agente pausado esperando aprobacion.",
+  "timestamp": "2026-03-09T14:10:00.123456"
+}
+```
+
+```json
+{
+  "type": "system",
+  "message": "Ciclo de analisis completado.",
+  "timestamp": "2026-03-09T14:15:00.123456"
+}
+```
+
+### Error Events
+
+Error and exception events:
+
+```json
+{
+  "type": "error",
+  "message": "Error critico durante la ejecucion del agente: Connection timeout",
+  "timestamp": "2026-03-09T14:20:00.123456",
+  "data": {
+    "error_type": "ConnectionTimeout",
+    "service": "postgresql"
+  }
+}
+```
+
+### Configuration Events
+
+Configuration change events:
+
+```json
+{
+  "type": "config",
+  "message": "Servicio 'mongodb' agregado al monitoreo.",
+  "timestamp": "2026-03-09T14:25:00.123456",
+  "data": {
+    "service_name": "mongodb",
+    "action": "added"
+  }
+}
+```
+
+```json
+{
+  "type": "config",
+  "message": "Servicio 'oldservice' eliminado del monitoreo.",
+  "timestamp": "2026-03-09T14:30:00.123456",
+  "data": {
+    "service_name": "oldservice",
+    "action": "removed"
+  }
+}
+```
+
+### Agent Events
+
+Agent execution and decision events:
+
+```json
+{
+  "type": "agent",
+  "message": "Diagnosticando servicio postgresql",
+  "timestamp": "2026-03-09T14:35:00.123456",
+  "data": {
+    "step": "diagnose",
+    "service": "postgresql"
+  }
+}
+```
+
+```json
+{
+  "type": "agent",
+  "message": "Ejecutando remediacion: reiniciar servicio",
+  "timestamp": "2026-03-09T14:40:00.123456",
+  "data": {
+    "step": "remediate",
+    "action": "restart",
+    "service": "postgresql"
+  }
+}
+```
+
+### Monitor Events
+
+Service monitoring events:
+
+```json
+{
+  "type": "monitor",
+  "message": "Servicio nginx esta funcionando correctamente",
+  "timestamp": "2026-03-09T14:45:00.123456",
+  "data": {
+    "service": "nginx",
+    "status": "running"
+  }
+}
+```
+
+```json
+{
+  "type": "monitor",
+  "message": "Servicio redis no responde",
+  "timestamp": "2026-03-09T14:50:00.123456",
+  "data": {
+    "service": "redis",
+    "status": "stopped"
+  }
+}
+```
+
+## Connection Lifecycle
+
+### Connection Established
+
+When a client connects to the WebSocket, the connection is immediately accepted and the client is subscribed to the event bus.
+
+### Receiving Events
+
+Events are pushed to all connected clients in real-time as they occur. There is no request/response pattern - the client only receives events.
+
+### Connection Closed
+
+When the connection is closed (either by the client or server), the client is automatically unsubscribed from the event bus.
+
+### Error Handling
+
+If an error occurs on the WebSocket connection, the connection will be closed and the client will be unsubscribed.
+
+## Implementation Example
+
+### React Component
+
+```javascript
+import { useEffect, useState } from 'react';
+
+function LogViewer() {
+  const [logs, setLogs] = useState([]);
+  const [connected, setConnected] = useState(false);
+
+  useEffect(() => {
+    const ws = new WebSocket('ws://localhost:8000/ws/logs');
+
+    ws.onopen = () => {
+      setConnected(true);
+      console.log('Connected to log stream');
+    };
+
+    ws.onmessage = (event) => {
+      const logEvent = JSON.parse(event.data);
+      setLogs(prev => [...prev, logEvent]);
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    ws.onclose = () => {
+      setConnected(false);
+      console.log('Disconnected from log stream');
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, []);
+
+  return (
+    <div>
+      <div>Status: {connected ? 'Connected' : 'Disconnected'}</div>
+      <div>
+        {logs.map((log, i) => (
+          <div key={i}>
+            <span>[{log.type}]</span>
+            <span>{log.timestamp}</span>
+            <span>{log.message}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+### Python Log Aggregator
+
+```python
+import asyncio
+import websockets
+import json
+from datetime import datetime
+
+class LogAggregator:
+    def __init__(self, uri="ws://localhost:8000/ws/logs"):
+        self.uri = uri
+        self.logs = []
+        self.filters = set()
+    
+    def add_filter(self, event_type):
+        """Only show logs of specific types"""
+        self.filters.add(event_type)
+    
+    async def connect(self):
+        async with websockets.connect(self.uri) as websocket:
+            print(f"Connected to {self.uri}")
+            
+            try:
+                async for message in websocket:
+                    log_event = json.loads(message)
+                    
+                    # Apply filters
+                    if self.filters and log_event['type'] not in self.filters:
+                        continue
+                    
+                    # Store log
+                    self.logs.append(log_event)
+                    
+                    # Display log
+                    timestamp = log_event.get('timestamp', '')
+                    log_type = log_event['type']
+                    message = log_event['message']
+                    
+                    print(f"[{timestamp}] [{log_type}] {message}")
+                    
+            except websockets.exceptions.ConnectionClosed:
+                print("Connection closed")
+    
+    def get_logs(self, event_type=None):
+        """Retrieve stored logs"""
+        if event_type:
+            return [log for log in self.logs if log['type'] == event_type]
+        return self.logs
+
+# Usage
+aggregator = LogAggregator()
+aggregator.add_filter('error')  # Only show errors
+aggregator.add_filter('system')  # And system events
+
+asyncio.run(aggregator.connect())
+```
+
+## Reconnection Strategy
+
+WebSocket connections can drop due to network issues. Implement automatic reconnection:
+
+```javascript
+class LogStreamClient {
+  constructor(url, onMessage) {
+    this.url = url;
+    this.onMessage = onMessage;
+    this.reconnectDelay = 1000;
+    this.maxReconnectDelay = 30000;
+    this.connect();
+  }
+
+  connect() {
+    this.ws = new WebSocket(this.url);
+
+    this.ws.onopen = () => {
+      console.log('Connected');
+      this.reconnectDelay = 1000; // Reset delay
+    };
+
+    this.ws.onmessage = (event) => {
+      const logEvent = JSON.parse(event.data);
+      this.onMessage(logEvent);
+    };
+
+    this.ws.onclose = () => {
+      console.log('Disconnected. Reconnecting...');
+      setTimeout(() => this.connect(), this.reconnectDelay);
+      
+      // Exponential backoff
+      this.reconnectDelay = Math.min(
+        this.reconnectDelay * 2,
+        this.maxReconnectDelay
+      );
+    };
+
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+  }
+
+  close() {
+    this.ws.close();
+  }
+}
+
+// Usage
+const client = new LogStreamClient(
+  'ws://localhost:8000/ws/logs',
+  (log) => console.log(log)
+);
+```
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Real-time Monitoring" icon="eye">
+    Build live dashboards showing agent activity and system status
+  </Card>
+  <Card title="Log Aggregation" icon="database">
+    Collect and store all events for analysis and auditing
+  </Card>
+  <Card title="Alert Systems" icon="bell">
+    Trigger alerts based on specific error or security events
+  </Card>
+  <Card title="Debug Tools" icon="bug">
+    Monitor agent execution flow during development and troubleshooting
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<Note>
+  **Implement Reconnection**: Network issues can cause disconnections. Always implement automatic reconnection with exponential backoff.
+</Note>
+
+<Note>
+  **Filter Client-Side**: The WebSocket sends all events. Filter events on the client side based on your needs to reduce processing overhead.
+</Note>
+
+<Note>
+  **Buffer Management**: If processing events is slow, implement buffering to prevent memory issues from queued events.
+</Note>
+
+<Warning>
+  **Security Consideration**: The WebSocket endpoint is not authenticated. In production, implement proper authentication and authorization.
+</Warning>

@@ -1,0 +1,357 @@
+---
+title: Chat Interface
+description: Query the knowledge base with streaming responses
+---
+
+## Overview
+
+The Chat endpoint provides an interface to query Sentinel AI's knowledge base using natural language. Responses are streamed in real-time using Server-Sent Events (SSE), allowing for progressive rendering of answers.
+
+## Query Knowledge Base
+
+<CodeGroup>
+```bash cURL
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "How do I restart nginx?"}'
+```
+
+```python Python
+import requests
+import json
+
+query = "How do I restart nginx?"
+
+response = requests.post(
+    "http://localhost:8000/chat",
+    json={"query": query},
+    stream=True
+)
+
+for line in response.iter_lines():
+    if line:
+        line = line.decode('utf-8')
+        if line.startswith('event:'):
+            event_type = line.split(':', 1)[1].strip()
+        elif line.startswith('data:'):
+            data = json.loads(line.split(':', 1)[1].strip())
+            print(f"[{event_type}] {data}")
+```
+
+```javascript JavaScript
+const query = "How do I restart nginx?";
+
+const response = await fetch('http://localhost:8000/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ query })
+});
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  
+  const chunk = decoder.decode(value);
+  const lines = chunk.split('\n');
+  
+  for (const line of lines) {
+    if (line.startsWith('event:')) {
+      const eventType = line.substring(7).trim();
+      console.log('Event:', eventType);
+    } else if (line.startsWith('data:')) {
+      const data = JSON.parse(line.substring(6));
+      console.log('Data:', data);
+    }
+  }
+}
+```
+</CodeGroup>
+
+Submits a natural language query to the knowledge base and streams the response.
+
+**Endpoint:** `POST /chat`
+
+**Content-Type:** `application/json`
+
+**Response Type:** `text/event-stream` (Server-Sent Events)
+
+### Request Body
+
+<ParamField body="query" type="string" required>
+  The natural language question or query to submit to the knowledge base
+</ParamField>
+
+### Example Request
+
+```json
+{
+  "query": "What are the common causes of PostgreSQL connection timeouts?"
+}
+```
+
+## Server-Sent Events Format
+
+The response is streamed as Server-Sent Events (SSE). Each event has the following format:
+
+```
+event: {event_type}
+data: {json_data}
+
+```
+
+### Event Types
+
+The knowledge base may emit different event types during the streaming response:
+
+<ResponseField name="thinking" type="event">
+  Indicates the system is processing the query. Data may contain intermediate reasoning steps.
+</ResponseField>
+
+<ResponseField name="searching" type="event">
+  Indicates the system is searching the knowledge base. Data may contain search progress.
+</ResponseField>
+
+<ResponseField name="answer" type="event">
+  Contains chunks of the final answer. Data includes the text content.
+</ResponseField>
+
+<ResponseField name="sources" type="event">
+  Contains references to source documents used to generate the answer. Data includes source metadata.
+</ResponseField>
+
+<ResponseField name="complete" type="event">
+  Signals that the response is complete. This is the final event in the stream.
+</ResponseField>
+
+<ResponseField name="error" type="event">
+  Indicates an error occurred during processing. Data contains error information.
+</ResponseField>
+
+### Example Event Stream
+
+```
+event: thinking
+data: {"message": "Analyzing query..."}
+
+event: searching
+data: {"message": "Searching knowledge base..."}
+
+event: answer
+data: {"content": "PostgreSQL connection timeouts can be caused by several factors:\n\n"}
+
+event: answer
+data: {"content": "1. Network issues between client and server\n"}
+
+event: answer
+data: {"content": "2. Too many concurrent connections exceeding max_connections\n"}
+
+event: answer
+data: {"content": "3. Long-running queries blocking new connections\n"}
+
+event: sources
+data: {"sources": [{"title": "PostgreSQL Performance Guide", "url": "..."}]}
+
+event: complete
+data: {"message": "Query complete"}
+
+```
+
+## Processing Streaming Responses
+
+### Python Example with SSE Client
+
+```python
+import requests
+import json
+
+def query_knowledge_base(query: str):
+    response = requests.post(
+        "http://localhost:8000/chat",
+        json={"query": query},
+        stream=True
+    )
+    
+    current_event = None
+    
+    for line in response.iter_lines():
+        if not line:
+            continue
+            
+        line = line.decode('utf-8')
+        
+        if line.startswith('event:'):
+            current_event = line.split(':', 1)[1].strip()
+        elif line.startswith('data:'):
+            data = json.loads(line.split(':', 1)[1].strip())
+            
+            if current_event == 'answer':
+                # Stream answer content
+                print(data.get('content', ''), end='', flush=True)
+            elif current_event == 'sources':
+                # Handle source references
+                print("\n\nSources:", data.get('sources', []))
+            elif current_event == 'error':
+                # Handle errors
+                print("Error:", data.get('error'))
+                break
+            elif current_event == 'complete':
+                print("\n\nComplete!")
+                break
+
+# Usage
+query_knowledge_base("How do I troubleshoot Redis memory issues?")
+```
+
+### JavaScript Example with EventSource
+
+<Note>
+  The native EventSource API doesn't support POST requests. Use fetch with ReadableStream or a library like `eventsource-parser`.
+</Note>
+
+```javascript
+import { createParser } from 'eventsource-parser';
+
+async function queryKnowledgeBase(query) {
+  const response = await fetch('http://localhost:8000/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query })
+  });
+
+  const parser = createParser((event) => {
+    if (event.type === 'event') {
+      const { event: eventType, data } = event;
+      const parsedData = JSON.parse(data);
+      
+      switch (eventType) {
+        case 'answer':
+          process.stdout.write(parsedData.content);
+          break;
+        case 'sources':
+          console.log('\n\nSources:', parsedData.sources);
+          break;
+        case 'error':
+          console.error('Error:', parsedData.error);
+          break;
+        case 'complete':
+          console.log('\n\nComplete!');
+          break;
+      }
+    }
+  });
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    
+    parser.feed(decoder.decode(value));
+  }
+}
+
+// Usage
+await queryKnowledgeBase('How do I troubleshoot Redis memory issues?');
+```
+
+## Error Handling
+
+### 503 Service Unavailable
+
+If the knowledge base is still initializing, you'll receive:
+
+```json
+{
+  "detail": "Knowledge base is initializing. Please try again in a few seconds."
+}
+```
+
+<Note>
+  The knowledge base initializes asynchronously when the API starts. Wait a few seconds and retry your request.
+</Note>
+
+### Error Event in Stream
+
+If an error occurs during query processing, an error event will be sent:
+
+```
+event: error
+data: {"error": "Failed to retrieve documents from vector store"}
+
+```
+
+## Best Practices
+
+### 1. Handle Initialization State
+
+```python
+import time
+import requests
+
+def wait_for_knowledge_base(max_retries=10):
+    for i in range(max_retries):
+        try:
+            response = requests.post(
+                "http://localhost:8000/chat",
+                json={"query": "test"},
+                stream=True
+            )
+            if response.status_code == 200:
+                return True
+        except:
+            pass
+        
+        time.sleep(2)
+    
+    return False
+```
+
+### 2. Buffer Partial Responses
+
+Stream answer chunks progressively but buffer them for complete context:
+
+```python
+answer_buffer = []
+
+for event, data in stream:
+    if event == 'answer':
+        chunk = data.get('content', '')
+        answer_buffer.append(chunk)
+        print(chunk, end='', flush=True)
+
+complete_answer = ''.join(answer_buffer)
+```
+
+### 3. Implement Timeout
+
+Set appropriate timeouts for streaming connections:
+
+```python
+response = requests.post(
+    "http://localhost:8000/chat",
+    json={"query": query},
+    stream=True,
+    timeout=(5, 60)  # 5s connect, 60s read
+)
+```
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Troubleshooting Assistant" icon="wrench">
+    Query the knowledge base for solutions to common service issues
+  </Card>
+  <Card title="Documentation Search" icon="book">
+    Find relevant documentation and procedures from the knowledge base
+  </Card>
+  <Card title="Interactive Support" icon="comments">
+    Build chatbot interfaces for real-time technical support
+  </Card>
+  <Card title="Knowledge Retrieval" icon="database">
+    Extract information about past incidents and resolutions
+  </Card>
+</CardGroup>

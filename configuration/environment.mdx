@@ -1,0 +1,292 @@
+---
+title: Environment Variables
+description: Configure Sentinel AI with environment variables for API keys, services, and system settings
+icon: 'gear'
+---
+
+Sentinel AI uses environment variables for configuration. Create a `.env` file in the root directory to configure the agent.
+
+## Quick Setup
+
+<Steps>
+  <Step title="Create .env file">
+    Create a `.env` file in the root directory of your Sentinel AI installation.
+  </Step>
+  <Step title="Add required variables">
+    Configure the required API keys and settings below.
+  </Step>
+  <Step title="Restart Sentinel AI">
+    Restart the agent to apply the new configuration.
+  </Step>
+</Steps>
+
+## API Keys
+
+### OpenAI Configuration
+
+<ParamField path="OPENAI_API_KEY" type="string" required>
+  OpenAI API key for GPT-4 model access. Used for the main reasoning engine and embeddings.
+  
+  **Used in:** `src/core/config.py:10`
+  
+  ```python
+  OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+  ```
+  
+  Get your API key from [OpenAI Platform](https://platform.openai.com/api-keys).
+</ParamField>
+
+<Note>
+  Sentinel AI uses `gpt-4o` as the default model with temperature set to `0` for deterministic responses.
+</Note>
+
+### Pinecone Configuration
+
+<ParamField path="PINECONE_API_KEY" type="string" required>
+  Pinecone API key for vector database access. Required for the knowledge base and RAG functionality.
+  
+  **Used in:** `src/core/config.py:14`
+  
+  ```python
+  PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+  ```
+  
+  The default index name is `sentinel-ai-index` with 1536 dimensions for OpenAI embeddings.
+</ParamField>
+
+<Info>
+  Sentinel AI automatically creates the Pinecone index on first run if it doesn't exist, using AWS us-east-1 region with cosine similarity metric.
+</Info>
+
+### LlamaCloud Configuration
+
+<ParamField path="LLAMA_CLOUD_API_KEY" type="string" required>
+  LlamaCloud API key for PDF parsing with LlamaParse. Required for ingesting technical documentation.
+  
+  **Used in:** `src/core/config.py:18`
+  
+  ```python
+  LLAMA_CLOUD_API_KEY = os.getenv("LLAMA_CLOUD_API_KEY")
+  ```
+  
+  Used by the knowledge base to parse PDF manuals into markdown format.
+</ParamField>
+
+### Cohere Configuration
+
+<ParamField path="COHERE_API_KEY" type="string" required>
+  Cohere API key for semantic reranking. Improves retrieval accuracy by reranking top-k results.
+  
+  **Used in:** `src/core/config.py:23`
+  
+  ```python
+  COHERE_API_KEY = os.getenv("COHERE_API_KEY")
+  ```
+  
+  The reranker is configured to return top 5 results after reranking.
+</ParamField>
+
+## SSH Configuration
+
+Sentinel AI connects to remote servers via SSH to execute commands and monitor services.
+
+<ParamField path="SSH_HOST" type="string" default="localhost">
+  Target SSH server hostname or IP address.
+  
+  **Used in:** `src/core/config.py:25`
+  
+  ```python
+  SSH_HOST = os.getenv("SSH_HOST", "localhost")
+  ```
+</ParamField>
+
+<ParamField path="SSH_PORT" type="integer" default="2222">
+  SSH server port number.
+  
+  **Used in:** `src/core/config.py:26`
+  
+  ```python
+  SSH_PORT = int(os.getenv("SSH_PORT", 2222))
+  ```
+</ParamField>
+
+<ParamField path="SSH_USER" type="string" default="sentinel">
+  SSH username for authentication.
+  
+  **Used in:** `src/core/config.py:27`
+  
+  ```python
+  SSH_USER = os.getenv("SSH_USER", "sentinel")
+  ```
+</ParamField>
+
+<ParamField path="SSH_PASS" type="string">
+  SSH password for authentication. Optional if using key-based authentication.
+  
+  **Used in:** `src/core/config.py:28`
+  
+  ```python
+  SSH_PASS = os.getenv("SSH_PASS")
+  ```
+  
+  <Warning>
+    For production environments, use key-based authentication instead of passwords. See [SSH Setup](/configuration/ssh-setup) for details.
+  </Warning>
+</ParamField>
+
+## System Configuration
+
+These variables control Sentinel AI's monitoring and execution behavior.
+
+<ParamField path="MONITOR_INTERVAL" type="integer" default="30">
+  Interval in seconds between service health checks.
+  
+  **Defined in:** `src/core/config.py:35`
+  
+  ```python
+  MONITOR_INTERVAL = 30
+  ```
+  
+  Lower values provide faster detection but increase system load.
+</ParamField>
+
+<ParamField path="MAX_RETRIES" type="integer" default="5">
+  Maximum number of retry attempts for failed operations.
+  
+  **Defined in:** `src/core/config.py:36`
+  
+  ```python
+  MAX_RETRIES = 5
+  ```
+</ParamField>
+
+## Directory Configuration
+
+Sentinel AI uses these directories for data storage. They are created automatically if they don't exist.
+
+<CodeGroup>
+```python src/core/config.py
+DATA_DIR = "data"
+MANUALS_DIR = os.path.join(DATA_DIR, "manuals")
+MEMORY_DIR = os.path.join(DATA_DIR, "memory")
+SERVICES_FILE = os.path.join(DATA_DIR, "services.json")
+```
+</CodeGroup>
+
+| Directory | Purpose | Path |
+|-----------|---------|------|
+| `DATA_DIR` | Root data directory | `data/` |
+| `MANUALS_DIR` | Technical documentation PDFs | `data/manuals/` |
+| `MEMORY_DIR` | Agent memory storage | `data/memory/` |
+| `SERVICES_FILE` | Service configuration | `data/services.json` |
+
+## Example Configuration
+
+<CodeGroup>
+```bash .env
+# OpenAI
+OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxx
+
+# Pinecone
+PINECONE_API_KEY=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+# LlamaCloud
+LLAMA_CLOUD_API_KEY=llx_xxxxxxxxxxxxx
+
+# Cohere
+COHERE_API_KEY=xxxxxxxxxxxxx
+
+# SSH Configuration
+SSH_HOST=192.168.1.100
+SSH_PORT=22
+SSH_USER=admin
+SSH_PASS=your_secure_password
+```
+
+```bash .env (Production)
+# Production with key-based SSH
+OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxx
+PINECONE_API_KEY=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+LLAMA_CLOUD_API_KEY=llx_xxxxxxxxxxxxx
+COHERE_API_KEY=xxxxxxxxxxxxx
+
+# SSH with key authentication (no password needed)
+SSH_HOST=prod-server.example.com
+SSH_PORT=22
+SSH_USER=sentinel
+# SSH_PASS not set - using key-based auth
+```
+</CodeGroup>
+
+## Model Configuration
+
+These are hardcoded in `config.py` but can be customized if needed:
+
+<Accordion title="Advanced Model Settings">
+  <CodeGroup>
+  ```python src/core/config.py
+  MODEL_NAME = "gpt-4o"
+  TEMPERATURE = 0
+  EMBED_MODEL = "text-embedding-3-small"
+  EMBEDDING_DIM = 1536
+  PINECONE_INDEX = "sentinel-ai-index"
+  ```
+  </CodeGroup>
+  
+  - **MODEL_NAME**: OpenAI model for reasoning (default: `gpt-4o`)
+  - **TEMPERATURE**: Sampling temperature for deterministic responses (default: `0`)
+  - **EMBED_MODEL**: OpenAI embedding model (default: `text-embedding-3-small`)
+  - **EMBEDDING_DIM**: Embedding dimensions for Pinecone (default: `1536`)
+  - **PINECONE_INDEX**: Pinecone index name (default: `sentinel-ai-index`)
+  
+  To customize these values, modify `src/core/config.py` directly.
+</Accordion>
+
+## Validation
+
+After configuring your environment variables, validate the setup:
+
+<CodeGroup>
+```bash Terminal
+# Check if all required API keys are set
+python -c "from src.core.config import config; print('OpenAI:', bool(config.OPENAI_API_KEY)); print('Pinecone:', bool(config.PINECONE_API_KEY)); print('Cohere:', bool(config.COHERE_API_KEY))"
+
+# Test SSH connection
+python -c "from src.tools.ssh import SSHClient; from src.core.config import config; client = SSHClient(config.SSH_HOST, config.SSH_USER, config.SSH_PASS, port=config.SSH_PORT); client.connect(); print('SSH connection successful')"
+```
+</CodeGroup>
+
+## Security Best Practices
+
+<Warning>
+  Never commit your `.env` file to version control. Add it to `.gitignore` immediately.
+</Warning>
+
+<CardGroup cols={2}>
+  <Card title="Use Environment-Specific Files" icon="file">
+    Create separate `.env.dev`, `.env.staging`, and `.env.prod` files for different environments.
+  </Card>
+  <Card title="Rotate Keys Regularly" icon="rotate">
+    Rotate API keys and SSH credentials periodically, especially after team member changes.
+  </Card>
+  <Card title="Restrict SSH Access" icon="lock">
+    Use SSH keys instead of passwords, and limit SSH user permissions to only what's needed.
+  </Card>
+  <Card title="Monitor API Usage" icon="chart-line">
+    Set up usage alerts for your API keys to detect unauthorized access or unexpected usage.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="SSH Setup" icon="terminal" href="/configuration/ssh-setup">
+    Configure SSH authentication and permissions
+  </Card>
+  <Card title="Services Configuration" icon="server" href="/configuration/services">
+    Define services to monitor and manage
+  </Card>
+  <Card title="AI Models" icon="brain" href="/configuration/ai-models">
+    Customize AI model settings and behavior
+  </Card>
+</CardGroup>

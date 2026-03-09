@@ -1,0 +1,356 @@
+---
+title: Service Management
+description: Monitor and manage services
+---
+
+## Overview
+
+The Service Management endpoints allow you to monitor service health, list configured services, add new services to monitoring, and remove services from the configuration.
+
+## Get Service Status
+
+<CodeGroup>
+```bash cURL
+curl http://localhost:8000/status
+```
+
+```python Python
+import requests
+
+response = requests.get("http://localhost:8000/status")
+services = response.json()
+
+for name, info in services.items():
+    print(f"{name}: {info['status']}")
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/status')
+  .then(res => res.json())
+  .then(services => {
+    Object.entries(services).forEach(([name, info]) => {
+      console.log(`${name}: ${info.status}`);
+    });
+  });
+```
+</CodeGroup>
+
+Retrieves the current status of all monitored services by executing health check commands via SSH.
+
+**Endpoint:** `GET /status`
+
+### Response
+
+Returns an object where each key is a service name and the value contains status information:
+
+<ResponseField name="[service_name]" type="object">
+  Status information for each monitored service
+  
+  <ResponseField name="status" type="string">
+    Service status: `"running"`, `"stopped"`, or `"error"`
+  </ResponseField>
+  
+  <ResponseField name="details" type="string">
+    Additional details about the service state. For running services, typically "Service is active". For stopped or error states, contains diagnostic information.
+  </ResponseField>
+  
+  <ResponseField name="type" type="string">
+    Service type (e.g., `"systemd"`, `"docker"`, `"custom"`)
+  </ResponseField>
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "nginx": {
+    "status": "running",
+    "details": "Service is active",
+    "type": "systemd"
+  },
+  "postgresql": {
+    "status": "stopped",
+    "details": "inactive (dead)",
+    "type": "systemd"
+  },
+  "redis": {
+    "status": "running",
+    "details": "Service is active",
+    "type": "docker"
+  }
+}
+```
+
+<Note>
+  If SSH connection fails, all services will be marked as `"error"` with details indicating SSH unavailability.
+</Note>
+
+## List Services
+
+<CodeGroup>
+```bash cURL
+curl http://localhost:8000/services
+```
+
+```python Python
+import requests
+
+response = requests.get("http://localhost:8000/services")
+services = response.json()
+
+for name, config in services.items():
+    print(f"{name}: {config['type']}")
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/services')
+  .then(res => res.json())
+  .then(services => console.log(services));
+```
+</CodeGroup>
+
+Retrieves the configuration for all monitored services, including check commands and running indicators.
+
+**Endpoint:** `GET /services`
+
+### Response
+
+Returns an object with service configurations:
+
+<ResponseField name="[service_name]" type="object">
+  Configuration for each service
+  
+  <ResponseField name="check_command" type="string">
+    Shell command executed to check service status
+  </ResponseField>
+  
+  <ResponseField name="running_indicator" type="string">
+    String pattern that indicates the service is running (searched in command output)
+  </ResponseField>
+  
+  <ResponseField name="type" type="string">
+    Service type classification
+  </ResponseField>
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "nginx": {
+    "check_command": "systemctl status nginx",
+    "running_indicator": "active (running)",
+    "type": "systemd"
+  },
+  "postgresql": {
+    "check_command": "systemctl status postgresql",
+    "running_indicator": "active (running)",
+    "type": "systemd"
+  },
+  "myapp": {
+    "check_command": "docker ps --filter name=myapp",
+    "running_indicator": "Up",
+    "type": "docker"
+  }
+}
+```
+
+## Add Service
+
+<CodeGroup>
+```bash cURL
+curl -X POST http://localhost:8000/services \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "mongodb",
+    "check_command": "systemctl status mongodb",
+    "running_indicator": "active (running)",
+    "type": "systemd"
+  }'
+```
+
+```python Python
+import requests
+
+service_config = {
+    "name": "mongodb",
+    "check_command": "systemctl status mongodb",
+    "running_indicator": "active (running)",
+    "type": "systemd"
+}
+
+response = requests.post(
+    "http://localhost:8000/services",
+    json=service_config
+)
+print(response.json())
+```
+
+```javascript JavaScript
+const serviceConfig = {
+  name: 'mongodb',
+  check_command: 'systemctl status mongodb',
+  running_indicator: 'active (running)',
+  type: 'systemd'
+};
+
+fetch('http://localhost:8000/services', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(serviceConfig)
+})
+  .then(res => res.json())
+  .then(data => console.log(data));
+```
+</CodeGroup>
+
+Adds a new service to the monitoring configuration.
+
+**Endpoint:** `POST /services`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Unique name identifier for the service
+</ParamField>
+
+<ParamField body="check_command" type="string" required>
+  Shell command to execute for checking service status. This command will be run via SSH on the monitored host.
+</ParamField>
+
+<ParamField body="running_indicator" type="string" required>
+  String pattern that should appear in the command output when the service is running. The service is considered running if this string is found in the output.
+</ParamField>
+
+<ParamField body="type" type="string" default="custom">
+  Service type classification (e.g., `"systemd"`, `"docker"`, `"custom"`). This is used for categorization and reporting.
+</ParamField>
+
+### Response
+
+<ResponseField name="status" type="string">
+  Operation status - will be "ok"
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message with the service name
+</ResponseField>
+
+```json
+{
+  "status": "ok",
+  "message": "Service mongodb added"
+}
+```
+
+<Note>
+  The service will be immediately available for monitoring and will be included in subsequent `/status` calls.
+</Note>
+
+## Delete Service
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE http://localhost:8000/services/mongodb
+```
+
+```python Python
+import requests
+
+service_name = "mongodb"
+response = requests.delete(f"http://localhost:8000/services/{service_name}")
+print(response.json())
+```
+
+```javascript JavaScript
+const serviceName = 'mongodb';
+
+fetch(`http://localhost:8000/services/${serviceName}`, {
+  method: 'DELETE'
+})
+  .then(res => res.json())
+  .then(data => console.log(data));
+```
+</CodeGroup>
+
+Removes a service from the monitoring configuration.
+
+**Endpoint:** `DELETE /services/{name}`
+
+### Path Parameters
+
+<ParamField path="name" type="string" required>
+  The name of the service to remove
+</ParamField>
+
+### Response
+
+<ResponseField name="status" type="string">
+  Operation status - will be "ok"
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message with the service name
+</ResponseField>
+
+```json
+{
+  "status": "ok",
+  "message": "Service mongodb removed"
+}
+```
+
+### Error Responses
+
+**404 Not Found** - Service does not exist:
+
+```json
+{
+  "detail": "Service not found"
+}
+```
+
+<Warning>
+  Removing a service from monitoring does not stop or affect the actual service - it only removes it from Sentinel AI's monitoring configuration.
+</Warning>
+
+## Service Types
+
+Sentinel AI supports monitoring various service types. Common configurations:
+
+### Systemd Services
+
+```json
+{
+  "name": "nginx",
+  "check_command": "systemctl status nginx",
+  "running_indicator": "active (running)",
+  "type": "systemd"
+}
+```
+
+### Docker Containers
+
+```json
+{
+  "name": "webapp",
+  "check_command": "docker ps --filter name=webapp",
+  "running_indicator": "Up",
+  "type": "docker"
+}
+```
+
+### Custom Services
+
+```json
+{
+  "name": "custom-app",
+  "check_command": "ps aux | grep custom-app",
+  "running_indicator": "custom-app --daemon",
+  "type": "custom"
+}
+```
+
+<Note>
+  The `check_command` is executed via SSH on the monitored host. Ensure the SSH user has appropriate permissions to run these commands.
+</Note>
