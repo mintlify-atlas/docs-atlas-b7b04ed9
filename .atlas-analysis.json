@@ -1,0 +1,117 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "Sentinel AI",
+  "projectDescription": "An autonomous DevOps agent that monitors, diagnoses, and repairs Linux server issues in real-time using AI and RAG-powered decision making.",
+  "theme": "aspen",
+  "primaryColor": "#2563eb",
+  "lightColor": "#60a5fa",
+  "darkColor": "#1e40af",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/agent-workflow",
+              "concepts/rag-system",
+              "concepts/knowledge-base",
+              "concepts/security"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment",
+              "configuration/ssh-setup",
+              "configuration/services",
+              "configuration/ai-models"
+            ]
+          },
+          {
+            "group": "Agent Operations",
+            "pages": [
+              "operations/monitoring",
+              "operations/diagnosis",
+              "operations/planning",
+              "operations/approval-flow",
+              "operations/execution",
+              "operations/verification"
+            ]
+          },
+          {
+            "group": "Dashboard",
+            "pages": [
+              "dashboard/overview",
+              "dashboard/terminal",
+              "dashboard/chat",
+              "dashboard/service-status"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/custom-services",
+              "advanced/extending-agent",
+              "advanced/memory-system",
+              "advanced/deployment"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/overview",
+              "api/agent",
+              "api/services",
+              "api/chat",
+              "api/websocket"
+            ]
+          },
+          {
+            "group": "Python SDK",
+            "pages": [
+              "sdk/agent-graph",
+              "sdk/nodes",
+              "sdk/knowledge-base",
+              "sdk/ssh-client"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Autonomous monitoring and repair of Linux services (Nginx, PostgreSQL, Docker)",
+    "RAG-powered diagnosis using Pinecone, LlamaIndex, and Cohere Rerank",
+    "LangGraph-based agent workflow with human-in-the-loop approval",
+    "Real-time dashboard with live terminal and WebSocket updates",
+    "Secure SSH-based command execution with safety controls",
+    "Interactive chat interface for querying technical documentation"
+  ],
+  "publicApiSurface": [
+    "POST /agent/run - Start the agent monitoring cycle",
+    "POST /agent/stop - Stop the running agent",
+    "POST /agent/approve - Approve or reject agent actions",
+    "GET /agent/state - Get current agent state",
+    "GET /status - Get service status",
+    "POST /chat - Query the knowledge base",
+    "WebSocket /ws/logs - Real-time log streaming",
+    "VectorKnowledgeBase.query() - Query RAG system",
+    "SSHClient.execute_command() - Execute remote commands",
+    "AgentGraph workflow nodes: monitor, diagnose, plan, approve, execute, verify"
+  ]
+}
